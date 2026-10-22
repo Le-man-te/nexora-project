@@ -1,0 +1,288 @@
+.notification-settings-page {
+  min-height: 100vh;
+  padding: 42px 24px 64px;
+  background:
+    radial-gradient(ellipse at 90% 0%, rgb(239 233 255 / 50%), transparent 34%),
+    #faf9fc;
+  color: #343349;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.notification-settings-page *,
+.notification-settings-page *::before,
+.notification-settings-page *::after {
+  box-sizing: border-box;
+}
+
+.notification-settings-container {
+  width: min(100%, 820px);
+  margin: 0 auto;
+}
+
+.notification-settings-header {
+  margin-bottom: 24px;
+}
+
+.notification-settings-eyebrow {
+  color: #7556d8;
+  font-size: 10px;
+  font-weight: 750;
+  letter-spacing: 1.3px;
+}
+
+.notification-settings-header h1 {
+  margin: 6px 0;
+  color: #29283d;
+  font-size: clamp(28px, 3.3vw, 36px);
+  font-weight: 700;
+  letter-spacing: -1.1px;
+  line-height: 1.2;
+}
+
+.notification-settings-header p {
+  margin: 0;
+  color: #838296;
+  font-size: 13px;
+}
+
+.notification-settings-form {
+  display: grid;
+  gap: 16px;
+}
+
+.notification-settings-card {
+  padding: 21px 22px;
+  border: 1px solid #eeedf3;
+  border-radius: 10px;
+  background: #fff;
+  box-shadow: 0 3px 12px rgb(35 31 56 / 3%);
+}
+
+.notification-settings-card-heading {
+  padding-bottom: 16px;
+  border-bottom: 1px solid #f0eff4;
+}
+
+.notification-settings-card-heading h2 {
+  margin: 0;
+  color: #38374d;
+  font-size: 14px;
+  font-weight: 680;
+  letter-spacing: -0.2px;
+}
+
+.notification-settings-card-heading p {
+  margin: 4px 0 0;
+  color: #9291a2;
+  font-size: 11px;
+}
+
+.notification-settings-toggle,
+.notification-settings-digest {
+  display: flex;
+  min-height: 66px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  border-bottom: 1px solid #f0eff4;
+}
+
+.notification-settings-toggle:last-child {
+  border-bottom: 0;
+}
+
+.notification-settings-toggle > span,
+.notification-settings-digest > span {
+  display: grid;
+  gap: 4px;
+}
+
+.notification-settings-toggle strong,
+.notification-settings-digest strong,
+.notification-settings-type strong {
+  color: #4b495e;
+  font-size: 12px;
+  font-weight: 620;
+}
+
+.notification-settings-toggle small,
+.notification-settings-digest small,
+.notification-settings-type small {
+  color: #9291a2;
+  font-size: 10px;
+  font-weight: 400;
+}
+
+.notification-settings-toggle input,
+.notification-settings-check input {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+  accent-color: #7052ce;
+  cursor: pointer;
+}
+
+.notification-settings-toggle input:focus-visible,
+.notification-settings-check input:focus-visible,
+.notification-settings-digest select:focus-visible {
+  outline: 3px solid rgb(112 82 206 / 25%);
+  outline-offset: 2px;
+}
+
+.notification-settings-table {
+  width: 100%;
+}
+
+.notification-settings-row {
+  display: grid;
+  min-height: 63px;
+  grid-template-columns: minmax(0, 1fr) 70px 70px;
+  align-items: center;
+  gap: 8px;
+  border-bottom: 1px solid #f0eff4;
+}
+
+.notification-settings-row:last-child {
+  border-bottom: 0;
+}
+
+.notification-settings-table-header {
+  min-height: 39px;
+}
+
+.notification-settings-table-header > span:not(:first-child) {
+  color: #9291a2;
+  font-size: 10px;
+  text-align: center;
+}
+
+.notification-settings-type {
+  display: grid;
+  gap: 3px;
+  padding: 8px 0;
+}
+
+.notification-settings-check {
+  display: grid;
+  place-items: center;
+}
+
+.notification-settings-check input:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
+.notification-settings-digest select {
+  width: 130px;
+  min-height: 35px;
+  padding: 0 9px;
+  border: 1px solid #e6e4ec;
+  border-radius: 7px;
+  background: #fff;
+  color: #4b495e;
+  font: inherit;
+  font-size: 11px;
+}
+
+.notification-settings-digest select:disabled {
+  background: #f7f6fa;
+  color: #9291a2;
+  cursor: not-allowed;
+}
+
+.notification-settings-save-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 2px 1px;
+}
+
+.notification-settings-save-row > span {
+  color: #9291a2;
+  font-size: 10px;
+}
+
+.notification-settings-save-row button {
+  min-height: 37px;
+  flex: 0 0 auto;
+  padding: 0 14px;
+  border: 1px solid #684bc7;
+  border-radius: 7px;
+  background: #7355ce;
+  color: #fff;
+  cursor: pointer;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 630;
+}
+
+.notification-settings-save-row button:hover:not(:disabled) {
+  background: #6245bd;
+}
+
+.notification-settings-save-row button:focus-visible {
+  outline: 3px solid rgb(112 82 206 / 25%);
+  outline-offset: 2px;
+}
+
+.notification-settings-save-row button:disabled {
+  cursor: wait;
+  opacity: 0.7;
+}
+
+.notification-settings-message {
+  margin: 0 0 14px;
+  padding: 11px 13px;
+  border: 1px solid #d8ebdf;
+  border-radius: 7px;
+  background: #f2faf5;
+  color: #34744c;
+  font-size: 12px;
+}
+
+.notification-settings-message.is-error {
+  border-color: #f0d6d9;
+  background: #fff6f6;
+  color: #a5414d;
+}
+
+.notification-settings-page .visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  clip-path: inset(50%);
+}
+
+@media (max-width: 600px) {
+  .notification-settings-page {
+    padding: 28px 16px 44px;
+  }
+
+  .notification-settings-card {
+    padding: 17px 15px;
+  }
+
+  .notification-settings-row {
+    grid-template-columns: minmax(0, 1fr) 48px 48px;
+    gap: 5px;
+  }
+
+  .notification-settings-type small {
+    max-width: 210px;
+  }
+
+  .notification-settings-save-row {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .notification-settings-save-row button {
+    width: 100%;
+  }
+}

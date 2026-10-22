@@ -1,0 +1,50 @@
+export {
+  formatNoteDate,
+  getNotePreview,
+  getNoteInitials,
+  filterNotes,
+  sortNotesByUpdatedAt,
+} from './notes.utils.js'
+
+export const sampleNotes = [
+  {
+    id: 'brand-direction',
+    title: 'Brand direction and visual references',
+    content: 'Explore a warmer visual identity that feels confident, calm, and useful.\n\nKeep the layouts open and make the product feel approachable for teams of all sizes.',
+    project: 'Website redesign',
+    author: 'Sam Kim',
+    updatedAt: '2026-10-18T15:30:00',
+    color: 'violet',
+    pinned: true,
+  },
+  {
+    id: 'launch-checklist',
+    title: 'Launch checklist',
+    content: 'Before launch:\n- Confirm the onboarding flow\n- Review the release notes\n- Share the support handoff',
+    project: 'Mobile app launch',
+    author: 'Alex Morgan',
+    updatedAt: '2026-10-17T11:15:00',
+    color: 'blue',
+    pinned: true,
+  },
+  {
+    id: 'campaign-ideas',
+    title: 'Campaign ideas',
+    content: 'A few directions for the Q4 campaign: customer stories, a small launch event, and a behind-the-scenes series.',
+    project: 'Q4 campaign',
+    author: 'Jordan Davis',
+    updatedAt: '2026-10-15T09:00:00',
+    color: 'orange',
+    pinned: false,
+  },
+  {
+    id: 'research-observations',
+    title: 'Research observations',
+    content: 'People want to see who owns the next step and where a decision was made. Keep updates close to the work.',
+    project: 'Customer research',
+    author: 'Alex Morgan',
+    updatedAt: '2026-10-12T14:20:00',
+    color: 'green',
+    pinned: false,
+  },
+]

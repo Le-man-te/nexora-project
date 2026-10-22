@@ -1,0 +1,517 @@
+.auth-layout.nexora-auth-layout {
+  position: relative;
+  min-height: 100vh;
+  align-items: stretch;
+  overflow: hidden;
+  padding: 0;
+  background:
+    radial-gradient(ellipse at 0 100%, rgb(128 99 206 / 9%), transparent 39rem),
+    #fbfaff;
+  color: #302d44;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 14px;
+  line-height: 1.45;
+  letter-spacing: 0;
+  text-align: left;
+}
+
+.nexora-auth-layout *,
+.nexora-auth-layout *::before,
+.nexora-auth-layout *::after {
+  box-sizing: border-box;
+}
+
+.nexora-auth-layout .auth-layout-brand {
+  position: absolute;
+  z-index: 2;
+  top: 27px;
+  left: clamp(24px, 5vw, 72px);
+  color: #2d2a42;
+  font-size: 20px;
+}
+
+.nexora-auth-layout .auth-layout-brand > span {
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+  font-size: 15px;
+}
+
+.nexora-auth-layout .auth-layout-main {
+  min-height: 100vh;
+  padding: 82px 20px 58px;
+}
+
+.nexora-auth-layout .auth-layout-card {
+  width: min(440px, 100%);
+  padding: 34px clamp(25px, 5vw, 40px) 29px;
+  border: 1px solid #eeecf4;
+  border-radius: 17px;
+  background: rgb(255 255 255 / 94%);
+  box-shadow: 0 24px 70px rgb(48 36 89 / 9%), 0 3px 9px rgb(48 36 89 / 3%);
+  animation: auth-card-enter 430ms cubic-bezier(.2, .75, .25, 1) both;
+}
+
+.nexora-auth-layout .auth-layout-card h1 {
+  color: #302d44;
+  font-size: 27px;
+  font-weight: 690;
+  letter-spacing: -1px;
+  line-height: 1.2;
+}
+
+.nexora-auth-layout .auth-layout-description {
+  margin: 8px 0 23px;
+  color: #8d8a9e;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.nexora-auth-layout > .layout-footer {
+  position: absolute;
+  right: 20px;
+  bottom: 14px;
+  left: 20px;
+  width: auto;
+  min-height: 24px;
+  color: #a19eae;
+  font-size: 10px;
+}
+
+.auth-kicker {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 12px;
+  color: #8268ca;
+  font-size: 9px;
+  font-weight: 750;
+  letter-spacing: 1.15px;
+}
+
+.auth-kicker-mark {
+  display: grid;
+  width: 19px;
+  height: 19px;
+  place-items: center;
+  border-radius: 6px;
+  background: #f0ebfc;
+  color: #7759c7;
+  font-size: 11px;
+}
+
+.nexora-auth-layout .auth-layout-card h1 + .auth-layout-description {
+  margin-top: 8px;
+}
+
+.auth-form {
+  display: grid;
+  gap: 15px;
+}
+
+.auth-field {
+  display: grid;
+  min-width: 0;
+  gap: 7px;
+}
+
+.auth-field > label {
+  color: #555268;
+  font-size: 10px;
+  font-weight: 650;
+}
+
+.auth-input-frame {
+  display: flex;
+  min-height: 42px;
+  align-items: center;
+  gap: 8px;
+  padding: 0 11px;
+  border: 1px solid #e7e5ed;
+  border-radius: 8px;
+  background: #fff;
+  transition: border-color 150ms ease, box-shadow 150ms ease;
+}
+
+.auth-input-frame:focus-within {
+  border-color: #a892e2;
+  box-shadow: 0 0 0 3px rgb(117 86 216 / 10%);
+}
+
+.auth-input-frame input {
+  width: 100%;
+  min-width: 0;
+  height: 40px;
+  padding: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: #38354b;
+  font: inherit;
+  font-size: 11px;
+}
+
+.auth-input-frame input::placeholder {
+  color: #aaa7b5;
+}
+
+.auth-password-toggle {
+  display: grid;
+  width: 26px;
+  height: 28px;
+  flex: 0 0 auto;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: #9491a3;
+  cursor: pointer;
+}
+
+.auth-password-toggle:hover {
+  background: #f6f4fb;
+  color: #7055bf;
+}
+
+.auth-password-toggle svg {
+  width: 17px;
+  height: 17px;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.5;
+}
+
+.auth-password-group {
+  display: grid;
+  gap: 7px;
+}
+
+.auth-password-strength {
+  display: flex;
+  min-height: 13px;
+  align-items: center;
+  gap: 9px;
+}
+
+.auth-strength-bars {
+  display: flex;
+  flex: 1;
+  gap: 4px;
+}
+
+.auth-strength-segment {
+  height: 3px;
+  flex: 1;
+  border-radius: 3px;
+  background: #eceaf0;
+}
+
+.auth-strength-segment.is-active {
+  background: #d7a345;
+}
+
+.auth-password-strength[data-level='2'] .auth-strength-segment.is-active,
+.auth-password-strength[data-level='3'] .auth-strength-segment.is-active {
+  background: #4b9c89;
+}
+
+.auth-password-strength[data-level='4'] .auth-strength-segment.is-active {
+  background: #43836a;
+}
+
+.auth-strength-label {
+  min-width: 84px;
+  color: #898698;
+  font-size: 9px;
+  text-align: right;
+}
+
+.auth-form-options {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: -2px;
+}
+
+.auth-remember {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: #747186;
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.auth-remember input {
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  accent-color: #7456ce;
+}
+
+.auth-text-link,
+.auth-inline-link {
+  color: #7154c4;
+  font-size: 10px;
+  font-weight: 650;
+  text-decoration: none;
+}
+
+.auth-text-link:hover,
+.auth-inline-link:hover {
+  color: #5236a7;
+  text-decoration: underline;
+}
+
+.auth-submit {
+  display: flex;
+  width: 100%;
+  min-height: 43px;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  margin-top: 2px;
+  padding: 0 14px;
+  border: 1px solid #6749bf;
+  border-radius: 8px;
+  background: linear-gradient(110deg, #8063d8, #684bc2);
+  box-shadow: 0 5px 12px rgb(105 77 195 / 19%);
+  color: #fff;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 680;
+  cursor: pointer;
+  transition: transform 150ms ease, box-shadow 150ms ease;
+}
+
+.auth-submit span {
+  font-size: 15px;
+  font-weight: 450;
+  transition: transform 150ms ease;
+}
+
+.auth-submit:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 8px 17px rgb(105 77 195 / 25%);
+}
+
+.auth-submit:hover span {
+  transform: translateX(2px);
+}
+
+.auth-message {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  margin: 14px 0 0;
+  padding: 10px 11px;
+  border: 1px solid #e5def7;
+  border-radius: 8px;
+  background: #f8f5ff;
+  color: #67529d;
+  font-size: 10px;
+  line-height: 1.55;
+}
+
+.auth-message > span {
+  display: grid;
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+  place-items: center;
+  border-radius: 50%;
+  background: #e9e1fb;
+  color: #6d4fbd;
+  font-size: 10px;
+  font-weight: 750;
+}
+
+.auth-message-error {
+  border-color: #f0dcdc;
+  background: #fff8f7;
+  color: #a44d51;
+}
+
+.auth-message-error > span {
+  background: #fae8e6;
+  color: #b84e4e;
+}
+
+.auth-divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 18px 0 15px;
+  color: #aaa7b5;
+  font-size: 9px;
+}
+
+.auth-divider::before,
+.auth-divider::after {
+  height: 1px;
+  flex: 1;
+  background: #efedf3;
+  content: '';
+}
+
+.auth-switch {
+  margin: 18px 0 0;
+  color: #8b889a;
+  font-size: 10px;
+  text-align: center;
+}
+
+.auth-switch a {
+  margin-left: 3px;
+  color: #6e50c3;
+  font-weight: 680;
+  text-decoration: none;
+}
+
+.auth-switch a:hover {
+  text-decoration: underline;
+}
+
+.auth-legal {
+  margin-top: 20px;
+  color: #a19eae;
+  font-size: 9px;
+  line-height: 1.6;
+  text-align: center;
+}
+
+.auth-legal a {
+  color: #8170b2;
+  text-decoration: none;
+}
+
+.auth-legal a:hover {
+  text-decoration: underline;
+}
+
+.auth-security-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  margin-top: 18px;
+  padding: 11px;
+  border: 1px solid #efedf4;
+  border-radius: 8px;
+  background: #fcfbfe;
+  color: #898698;
+  font-size: 9px;
+  line-height: 1.55;
+}
+
+.auth-security-note span {
+  color: #856bc7;
+  font-size: 14px;
+}
+
+.auth-security-note p {
+  margin: 0;
+}
+
+.auth-success-panel {
+  display: grid;
+  justify-items: center;
+  padding: 6px 0 1px;
+  text-align: center;
+}
+
+.auth-success-icon {
+  display: grid;
+  width: 52px;
+  height: 52px;
+  place-items: center;
+  margin-bottom: 14px;
+  border: 1px solid #dfd7f5;
+  border-radius: 17px;
+  background: linear-gradient(145deg, #f7f3ff, #ece5fc);
+  color: #7355c6;
+  font-size: 22px;
+  box-shadow: 0 7px 18px rgb(97 72 167 / 11%);
+}
+
+.auth-success-panel h2 {
+  margin: 0;
+  color: #343149;
+  font-size: 16px;
+  letter-spacing: -.3px;
+}
+
+.auth-success-panel > p {
+  margin: 7px 0 0;
+  color: #9290a0;
+  font-size: 10px;
+  line-height: 1.65;
+}
+
+.auth-success-panel .auth-submit {
+  margin-top: 20px;
+}
+
+.auth-back-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 17px;
+  color: #7760b7;
+  font-size: 10px;
+  font-weight: 650;
+  text-decoration: none;
+}
+
+.auth-back-link:hover {
+  color: #5339a4;
+}
+
+@keyframes auth-card-enter {
+  from {
+    opacity: 0;
+    transform: translateY(9px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (max-width: 560px) {
+  .nexora-auth-layout .auth-layout-brand {
+    top: 18px;
+    left: 18px;
+  }
+
+  .nexora-auth-layout .auth-layout-main {
+    padding: 68px 14px 52px;
+  }
+
+  .nexora-auth-layout .auth-layout-card {
+    padding: 27px 22px 24px;
+    border-radius: 14px;
+  }
+
+  .nexora-auth-layout .auth-layout-card h1 {
+    font-size: 24px;
+  }
+
+  .nexora-auth-layout > .layout-footer {
+    bottom: 8px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nexora-auth-layout .auth-layout-card {
+    animation: none;
+  }
+
+  .auth-submit,
+  .auth-submit span {
+    transition: none;
+  }
+}

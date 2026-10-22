@@ -1,0 +1,61 @@
+.filter-bar {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 5px;
+  overflow-x: auto;
+}
+
+.filter-bar-option {
+  display: inline-flex;
+  min-height: 32px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 0 11px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: transparent;
+  color: #777589;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 550;
+  white-space: nowrap;
+}
+
+.filter-bar-option:hover {
+  background: #f7f6fa;
+  color: #49465f;
+}
+
+.filter-bar-option.is-selected {
+  border-color: #e9e5f2;
+  background: #fff;
+  color: #5f42bc;
+  box-shadow: 0 1px 2px rgb(40 35 65 / 5%);
+}
+
+.filter-bar-option:focus-visible {
+  outline: 3px solid rgb(112 82 206 / 25%);
+  outline-offset: 2px;
+}
+
+.filter-bar-count {
+  display: inline-grid;
+  min-width: 18px;
+  height: 18px;
+  place-items: center;
+  padding: 0 4px;
+  border-radius: 5px;
+  background: #f0eef5;
+  color: #777589;
+  font-size: 10px;
+  line-height: 1;
+}
+
+.filter-bar-option.is-selected .filter-bar-count {
+  background: #f0ebff;
+  color: #5f42bc;
+}

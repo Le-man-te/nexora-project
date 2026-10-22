@@ -1,9 +1,9 @@
 import { createBrowserRouter } from 'react-router-dom'
 import DashboardPage from '../pages/dashboard/DashboardPage.jsx'
-import CreateWorkSpacePage from '../pages/workspaces/CreateWorkSpacePage.jsx'
-import WorkSpaceListPage from '../pages/workspaces/WorkSpaceListPage.jsx'
-import WorkSpaceMembersPage from '../pages/workspaces/WorkSpaceMembersPage.jsx'
-import WorkSpaceSettingPage from '../pages/workspaces/WorkSpaceSettingPage.jsx'
+import CreateWorkSpacePage from '../pages/search/workspaces/CreateWorkSpacePage.jsx'
+import WorkSpaceListPage from '../pages/search/workspaces/WorkSpaceListPage.jsx'
+import WorkSpaceMembersPage from '../pages/search/workspaces/WorkSpaceMembersPage.jsx'
+import WorkSpaceSettingPage from '../pages/search/workspaces/WorkSpaceSettingPage.jsx'
 import AboutPage from '../pages/public/AboutPage.jsx'
 import FeaturesPage from '../pages/public/FeaturesPage.jsx'
 import LandingPage from '../pages/public/LandingPage.jsx'
@@ -32,6 +32,9 @@ import ResetPasswordPage from '../pages/auth/ResetPasswordPage.jsx'
 import VerifyEmailPage from '../pages/auth/VerifyEmailPage.jsx'
 import AnalyticsRoute from '../pages/analytics/AnalyticsRoute.jsx'
 import AiAssistantRoute from '../pages/ai/AiAssistantRoute.jsx'
+import UnauthorizedPage from '../pages/errors/UnauthorizedPage.jsx'
+import ForbiddenPage from '../pages/errors/ForbiddenPge.jsx'
+import ServerErrorPage from '../pages/errors/ServerErrorPage.jsx'
 
 const router = createBrowserRouter([
   {
@@ -57,6 +60,18 @@ const router = createBrowserRouter([
   {
     path: '/verify-email',
     element: <VerifyEmailPage />,
+  },
+  {
+    path: '/unauthorized',
+    element: <UnauthorizedPage />,
+  },
+  {
+    path: '/forbidden',
+    element: <ForbiddenPage />,
+  },
+  {
+    path: '/server-error',
+    element: <ServerErrorPage />,
   },
   {
     path: '/dashboard',

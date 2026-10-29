@@ -434,6 +434,40 @@ app.get('/api/workspaces/:id/members', async (req, res) => {
   });
 });
 
+app.patch('/api/workspaces/:id/members/:memberId', async (req, res) => {
+  await requireWorkspaceMember(req.params.id, req.user.id, 'admin');
+  const role = req.body?.role;
+  if (!['admin', 'member'].includes(role)) throw new HttpError(400, 'Choose a valid member role.');
+  const database = getMongoDatabase();
+  const member = await database.collection('workspace_members').findOne({
+    workspace_id: req.params.id,
+    user_id: req.params.memberId,
+  });
+  if (!member) throw new HttpError(404, 'Workspace member not found.');
+  if (member.role === 'owner') throw new HttpError(400, 'The workspace owner role cannot be changed.');
+  await database.collection('workspace_members').updateOne(
+    { workspace_id: req.params.id, user_id: req.params.memberId },
+    { $set: { role, updated_at: new Date() } },
+  );
+  res.json({ message: 'Workspace member role updated successfully.' });
+});
+
+app.delete('/api/workspaces/:id/members/:memberId', async (req, res) => {
+  await requireWorkspaceMember(req.params.id, req.user.id, 'admin');
+  const database = getMongoDatabase();
+  const member = await database.collection('workspace_members').findOne({
+    workspace_id: req.params.id,
+    user_id: req.params.memberId,
+  });
+  if (!member) throw new HttpError(404, 'Workspace member not found.');
+  if (member.role === 'owner') throw new HttpError(400, 'The workspace owner cannot be removed.');
+  await database.collection('workspace_members').deleteOne({
+    workspace_id: req.params.id,
+    user_id: req.params.memberId,
+  });
+  res.json({ message: 'Workspace member removed successfully.' });
+});
+
 app.use('/api/projects', requireAuth);
 app.use('/api/projects/archived', requireAuth);
 

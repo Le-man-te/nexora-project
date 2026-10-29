@@ -238,6 +238,26 @@
   color: #a09eae;
 }
 
+.workspace-members-workspace-select {
+  display: grid;
+  width: min(100%, 260px);
+  gap: 6px;
+  margin: 0 0 16px auto;
+  color: #777489;
+  font-size: 10px;
+  font-weight: 650;
+}
+
+.workspace-members-workspace-select select {
+  min-height: 35px;
+  padding: 0 10px;
+  border: 1px solid #e8e6ef;
+  border-radius: 8px;
+  background: #fff;
+  color: #4a475d;
+  font: inherit;
+}
+
 .workspace-members-search:focus-within {
   border-color: #927bdc;
   box-shadow: 0 0 0 3px rgb(117 86 216 / 10%);

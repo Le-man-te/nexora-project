@@ -9,6 +9,7 @@ const projects = [
   { name: 'Website redesign', color: 'violet' },
   { name: 'Mobile app launch', color: 'blue' },
   { name: 'Q4 campaign', color: 'orange' },
+  { name: 'Idea Generation', color: 'green' }
 ]
 
 const navigation = [

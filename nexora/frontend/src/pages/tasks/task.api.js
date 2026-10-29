@@ -37,8 +37,19 @@ function taskPath(taskId) {
 	return `/tasks/${encodeURIComponent(taskId)}`
 }
 
-export function listTasks(options) {
-	return request('/tasks', options)
+function buildQuery(filters = {}) {
+	const params = new URLSearchParams()
+	for (const [key, value] of Object.entries(filters)) {
+		if (value !== undefined && value !== null && value !== '') {
+			params.set(key, String(value))
+		}
+	}
+	const query = params.toString()
+	return query ? `?${query}` : ''
+}
+
+export function listTasks(filters = {}, options) {
+	return request(`/tasks${buildQuery(filters)}`, options)
 }
 
 export function getTask(taskId, options) {

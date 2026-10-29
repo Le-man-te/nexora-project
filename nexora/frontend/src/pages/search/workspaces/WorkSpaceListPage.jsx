@@ -1,43 +1,15 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
+import {
+  listWorkspaceMembers,
+  listWorkspaces,
+} from '../../../features/workspaces/components/workspaces.api.js'
+import { listProjects } from '../../projects/projects.api.js'
+import {
+  getActiveWorkspaceId,
+  setActiveWorkspaceId,
+} from '../../../features/workspaces/workspaceState.js'
 import './WorkSpaceListPage.css'
-
-const defaultWorkspaces = [
-  {
-    id: 'studio-north',
-    name: 'Studio North',
-    description: 'A creative team building thoughtful digital experiences.',
-    plan: 'Free plan',
-    role: 'Owner',
-    members: ['LT', 'JD', 'SK', 'RL'],
-    projectCount: 8,
-    updated: 'Active today',
-    color: 'violet',
-    current: true,
-  },
-  {
-    id: 'field-notes',
-    name: 'Field Notes',
-    description: 'Research, ideas, and inspiration gathered along the way.',
-    plan: 'Free plan',
-    role: 'Member',
-    members: ['LT', 'LC', 'MP'],
-    projectCount: 4,
-    updated: 'Active yesterday',
-    color: 'blue',
-  },
-  {
-    id: 'weekend-projects',
-    name: 'Weekend Projects',
-    description: 'Small experiments and side projects with friends.',
-    plan: 'Free plan',
-    role: 'Owner',
-    members: ['LT', 'JR'],
-    projectCount: 2,
-    updated: 'Active 3 days ago',
-    color: 'orange',
-  },
-]
 
 const filters = [
   { value: 'all', label: 'All workspaces' },
@@ -85,11 +57,59 @@ function getInitials(name) {
 }
 
 function WorkSpaceListPage({
-  workspaces = defaultWorkspaces,
+  workspaces: workspacesProp,
   onOpenWorkspace,
 }) {
+  const [workspaces, setWorkspaces] = useState(workspacesProp || [])
+  const [loading, setLoading] = useState(!workspacesProp)
+  const [error, setError] = useState('')
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState('all')
+
+  useEffect(() => {
+    if (workspacesProp) {
+      setWorkspaces(workspacesProp)
+      setLoading(false)
+      return undefined
+    }
+
+    const controller = new AbortController()
+
+    async function loadWorkspaces() {
+      try {
+        const result = await listWorkspaces({ signal: controller.signal })
+        const activeId = getActiveWorkspaceId()
+        const items = await Promise.all((result.workspaces || []).map(async (workspace) => {
+          const [memberResult, projectResult] = await Promise.all([
+            listWorkspaceMembers(workspace.id, { signal: controller.signal }),
+            listProjects({ workspaceId: workspace.id }, { signal: controller.signal }),
+          ])
+          return {
+            ...workspace,
+            role: workspace.role === 'owner' ? 'Owner' : workspace.role === 'admin' ? 'Admin' : 'Member',
+            members: (memberResult.members || []).map((member) => getInitials(member.name)),
+            memberCount: (memberResult.members || []).length,
+            projectCount: (projectResult.projects || []).length,
+            plan: 'Free plan',
+            current: workspace.id === activeId,
+          }
+        }))
+        const selectedId = items.some((workspace) => workspace.id === activeId)
+          ? activeId
+          : items[0]?.id || ''
+        if (selectedId) setActiveWorkspaceId(selectedId)
+        setWorkspaces(items.map((workspace) => ({ ...workspace, current: workspace.id === selectedId })))
+        setError('')
+      } catch (loadError) {
+        if (!controller.signal.aborted) setError(loadError.message || 'Could not load workspaces.')
+      } finally {
+        if (!controller.signal.aborted) setLoading(false)
+      }
+    }
+
+    loadWorkspaces()
+    return () => controller.abort()
+  }, [workspacesProp])
 
   const filteredWorkspaces = useMemo(() => {
     const query = search.trim().toLowerCase()
@@ -112,6 +132,13 @@ function WorkSpaceListPage({
   ).length
 
   function handleOpen(workspace) {
+    if (workspace.id) {
+      setActiveWorkspaceId(workspace.id)
+      setWorkspaces((current) => current.map((item) => ({
+        ...item,
+        current: item.id === workspace.id,
+      })))
+    }
     onOpenWorkspace?.(workspace)
   }
 
@@ -140,7 +167,7 @@ function WorkSpaceListPage({
             <WorkspaceIcon name="grid" size={20} />
           </div>
           <div>
-            <strong>{workspaces.length} {workspaces.length === 1 ? 'workspace' : 'workspaces'}</strong>
+            <strong>{loading ? 'Loading workspaces…' : `${workspaces.length} ${workspaces.length === 1 ? 'workspace' : 'workspaces'}`}</strong>
             <span>{ownedCount} owned by you · All your teams, in one place</span>
           </div>
           <div className="workspace-summary-decoration" aria-hidden="true">
@@ -151,6 +178,7 @@ function WorkSpaceListPage({
         </section>
 
         <section className="workspace-list-content" aria-labelledby="workspace-list-title">
+          {error && <p className="workspace-submit-feedback" role="alert">{error}</p>}
           <div className="workspace-list-tools">
             <div className="workspace-list-section-heading">
               <h2 id="workspace-list-title">Your workspaces</h2>
@@ -182,7 +210,9 @@ function WorkSpaceListPage({
             ))}
           </div>
 
-          {filteredWorkspaces.length > 0 ? (
+          {loading ? (
+            <div className="workspace-list-empty"><p>Loading your workspaces…</p></div>
+          ) : filteredWorkspaces.length > 0 ? (
             <div className="workspace-list-grid">
               {filteredWorkspaces.map((workspace) => {
                 const members = workspace.members ?? []
@@ -215,7 +245,7 @@ function WorkSpaceListPage({
 
                     <div className="workspace-card-stats">
                       <span><WorkspaceIcon name="folder" size={15} /> {workspace.projectCount ?? 0} projects</span>
-                      <span><WorkspaceIcon name="users" size={15} /> {members.length} members</span>
+                      <span><WorkspaceIcon name="users" size={15} /> {workspace.memberCount ?? members.length} members</span>
                     </div>
 
                     <div className="workspace-card-footer">

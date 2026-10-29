@@ -1,54 +1,22 @@
-import { useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
+import {
+  listWorkspaceMembers,
+  listWorkspaces,
+  removeWorkspaceMember,
+  updateWorkspaceMemberRole,
+} from '../../../features/workspaces/components/workspaces.api.js'
+import {
+  listInvitations,
+  resendInvitation,
+  revokeInvitation,
+  sendInvitation,
+} from '../../collaborations/collaboration.api.js'
+import {
+  getActiveWorkspaceId,
+  setActiveWorkspaceId,
+} from '../../../features/workspaces/workspaceState.js'
 import './WorkSpaceMembersPage.css'
-
-const initialMembers = [
-  {
-    id: 'leta-tesfaye',
-    name: 'Leta Tesfaye',
-    email: 'leta@studionorth.com',
-    role: 'Owner',
-    status: 'Active',
-    joined: 'You',
-    initials: 'LT',
-  },
-  {
-    id: 'jordan-davis',
-    name: 'Jordan Davis',
-    email: 'jordan@studionorth.com',
-    role: 'Admin',
-    status: 'Active',
-    joined: 'Oct 02, 2026',
-    initials: 'JD',
-  },
-  {
-    id: 'sam-kim',
-    name: 'Sam Kim',
-    email: 'sam@studionorth.com',
-    role: 'Member',
-    status: 'Active',
-    joined: 'Oct 06, 2026',
-    initials: 'SK',
-  },
-  {
-    id: 'riley-lee',
-    name: 'Riley Lee',
-    email: 'riley@studionorth.com',
-    role: 'Member',
-    status: 'Active',
-    joined: 'Oct 11, 2026',
-    initials: 'RL',
-  },
-  {
-    id: 'morgan-chen',
-    name: 'Morgan Chen',
-    email: 'morgan.chen@example.com',
-    role: 'Member',
-    status: 'Invited',
-    joined: 'Invite sent Oct 18',
-    initials: 'MC',
-  },
-]
 
 const memberFilters = ['Everyone', 'Admins', 'Members', 'Invited']
 
@@ -89,14 +57,15 @@ function getInitials(name) {
     : parts[0].slice(0, 2).toUpperCase()
 }
 
-function WorkSpaceMembersPage({
-  members: membersProp = initialMembers,
-  workspaceName = 'Studio North',
-  onInvite,
-  onRoleChange,
-  onRevokeInvite,
-}) {
-  const [members, setMembers] = useState(membersProp)
+function WorkSpaceMembersPage({ members: membersProp, workspaceName: workspaceNameProp, onInvite, onRoleChange, onRevokeInvite }) {
+  const [workspaces, setWorkspaces] = useState([])
+  const [workspaceId, setWorkspaceId] = useState('')
+  const [workspaceName, setWorkspaceName] = useState(workspaceNameProp || '')
+  const [members, setMembers] = useState(membersProp || [])
+  const [loading, setLoading] = useState(!membersProp)
+  const [loadedWorkspaceId, setLoadedWorkspaceId] = useState('')
+  const [loadError, setLoadError] = useState('')
+  const [busyMemberId, setBusyMemberId] = useState('')
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState('Everyone')
   const [inviteOpen, setInviteOpen] = useState(false)
@@ -107,6 +76,85 @@ function WorkSpaceMembersPage({
 
   const activeMembers = members.filter((member) => member.status === 'Active').length
   const pendingInvites = members.filter((member) => member.status === 'Invited').length
+
+  useEffect(() => {
+    if (membersProp) return undefined
+
+    const controller = new AbortController()
+    async function loadWorkspaces() {
+      try {
+        const result = await listWorkspaces({ signal: controller.signal })
+        const availableWorkspaces = result.workspaces || []
+        setWorkspaces(availableWorkspaces)
+        const storedId = getActiveWorkspaceId()
+        const selected = availableWorkspaces.find((workspace) => workspace.id === storedId)
+          || availableWorkspaces[0]
+        if (selected) {
+          setWorkspaceId(selected.id)
+          setWorkspaceName(selected.name)
+          setActiveWorkspaceId(selected.id)
+        } else {
+          setLoadError('Create a workspace before managing members.')
+        }
+      } catch (error) {
+        if (!controller.signal.aborted) setLoadError(error.message || 'Could not load workspaces.')
+      } finally {
+        if (!controller.signal.aborted) setLoading(false)
+      }
+    }
+
+    loadWorkspaces()
+    return () => controller.abort()
+  }, [membersProp])
+
+  const refreshMembers = useCallback(async (signal) => {
+    if (!workspaceId) return []
+    const memberResult = await listWorkspaceMembers(workspaceId, { signal })
+    const activeMembers = (memberResult.members || []).map((member) => ({
+      id: member.id,
+      name: member.name,
+      email: member.email,
+      role: member.role === 'owner' ? 'Owner' : member.role === 'admin' ? 'Admin' : 'Member',
+      status: 'Active',
+      joined: member.joinedAt ? new Date(member.joinedAt).toLocaleDateString() : 'Active',
+      initials: getInitials(member.name),
+    }))
+    const selectedWorkspace = workspaces.find((workspace) => workspace.id === workspaceId)
+    if (!['owner', 'admin'].includes(selectedWorkspace?.role)) return activeMembers
+    const invitationResult = await listInvitations({ workspaceId }, { signal })
+    const pendingMembers = (invitationResult.invitations || [])
+      .filter((invitation) => invitation.status === 'pending')
+      .map((invitation) => ({
+        id: invitation.id,
+        name: invitation.email,
+        email: invitation.email,
+        role: invitation.role === 'admin' ? 'Admin' : 'Member',
+        status: 'Invited',
+        joined: invitation.created_at
+          ? `Invite sent ${new Date(invitation.created_at).toLocaleDateString()}`
+          : 'Invite sent',
+        initials: getInitials(invitation.email),
+        isInvitation: true,
+      }))
+    return [...activeMembers, ...pendingMembers]
+  }, [workspaceId, workspaces])
+
+  useEffect(() => {
+    if (!workspaceId || membersProp) return undefined
+    const controller = new AbortController()
+    refreshMembers(controller.signal)
+      .then((loadedMembers) => {
+        setMembers(loadedMembers)
+        setLoadedWorkspaceId(workspaceId)
+      })
+      .catch((error) => {
+        if (!controller.signal.aborted) {
+          setLoadError(error.message || 'Could not load workspace members.')
+          setLoadedWorkspaceId(workspaceId)
+        }
+      })
+    return () => controller.abort()
+  }, [membersProp, refreshMembers, workspaceId])
 
   const filteredMembers = useMemo(() => {
     const query = search.trim().toLowerCase()
@@ -123,17 +171,22 @@ function WorkSpaceMembersPage({
     })
   }, [filter, members, search])
 
-  function handleRoleChange(member, role) {
-    setMembers((currentMembers) =>
-      currentMembers.map((current) =>
-        current.id === member.id ? { ...current, role } : current,
-      ),
-    )
-    onRoleChange?.(member, role)
-    setNotice(`${member.name} is now a ${role.toLowerCase()}.`)
+  async function handleRoleChange(member, role) {
+    setBusyMemberId(member.id)
+    setLoadError('')
+    try {
+      await updateWorkspaceMemberRole(workspaceId, member.id, role.toLowerCase())
+      setMembers(await refreshMembers())
+      onRoleChange?.(member, role)
+      setNotice(`${member.name} is now a ${role.toLowerCase()}.`)
+    } catch (error) {
+      setLoadError(error.message || 'Could not update member role.')
+    } finally {
+      setBusyMemberId('')
+    }
   }
 
-  function handleInvite(event) {
+  async function handleInvite(event) {
     event.preventDefault()
     const email = inviteEmail.trim().toLowerCase()
     const alreadyListed = members.some((member) => member.email.toLowerCase() === email)
@@ -143,33 +196,43 @@ function WorkSpaceMembersPage({
       return
     }
 
-    const invitedMember = {
-      id: `invite-${email}`,
-      name: email,
-      email,
-      role: inviteRole,
-      status: 'Invited',
-      joined: 'Invite sent just now',
-      initials: getInitials(email),
-    }
-
-    onInvite?.({ email, role: inviteRole })
-    setMembers((currentMembers) => [...currentMembers, invitedMember])
-    setInviteEmail('')
-    setInviteRole('Member')
+    setBusyMemberId('invite')
     setInviteError('')
-    setInviteOpen(false)
-    setFilter('Everyone')
-    setSearch('')
-    setNotice(`Invitation prepared for ${email}.`)
+    try {
+      await sendInvitation({ workspaceId, email, role: inviteRole })
+      setMembers(await refreshMembers())
+      onInvite?.({ email, role: inviteRole })
+      setInviteEmail('')
+      setInviteRole('Member')
+      setInviteOpen(false)
+      setFilter('Everyone')
+      setSearch('')
+      setNotice(`Invitation sent to ${email}.`)
+    } catch (error) {
+      setInviteError(error.message || 'Could not send invitation.')
+    } finally {
+      setBusyMemberId('')
+    }
   }
 
-  function revokeInvite(member) {
-    setMembers((currentMembers) =>
-      currentMembers.filter((current) => current.id !== member.id),
-    )
-    onRevokeInvite?.(member)
-    setNotice(`Invitation for ${member.email} was removed.`)
+  async function revokeInvite(member) {
+    setBusyMemberId(member.id)
+    try {
+      if (member.isInvitation) {
+        await revokeInvitation(member.id)
+      } else {
+        await removeWorkspaceMember(workspaceId, member.id)
+      }
+      setMembers(await refreshMembers())
+      onRevokeInvite?.(member)
+      setNotice(member.isInvitation
+        ? `Invitation for ${member.email} was revoked.`
+        : `${member.name} was removed from the workspace.`)
+    } catch (error) {
+      setLoadError(error.message || 'Could not remove this member.')
+    } finally {
+      setBusyMemberId('')
+    }
   }
 
   function closeInvite() {
@@ -200,6 +263,30 @@ function WorkSpaceMembersPage({
             Invite people
           </button>
         </header>
+
+        {workspaces.length > 1 && (
+          <label className="workspace-members-workspace-select">
+            <span>Workspace</span>
+            <select
+              aria-label="Workspace"
+              onChange={(event) => {
+                const selected = workspaces.find((workspace) => workspace.id === event.target.value)
+                setWorkspaceId(event.target.value)
+                setWorkspaceName(selected?.name || '')
+                setActiveWorkspaceId(event.target.value)
+                setLoadError('')
+                setNotice('')
+              }}
+              value={workspaceId}
+            >
+              {workspaces.map((workspace) => (
+                <option key={workspace.id} value={workspace.id}>{workspace.name}</option>
+              ))}
+            </select>
+          </label>
+        )}
+
+        {loadError && <p className="workspace-invite-error" role="alert">{loadError}</p>}
 
         <section className="workspace-members-summary" aria-label="Member summary">
           <div className="workspace-members-summary-icon">
@@ -257,7 +344,9 @@ function WorkSpaceMembersPage({
             ))}
           </div>
 
-          {filteredMembers.length ? (
+          {loading || (workspaceId && loadedWorkspaceId !== workspaceId) ? (
+            <div className="workspace-members-empty"><p>Loading workspace members…</p></div>
+          ) : filteredMembers.length ? (
             <>
               <div className="workspace-members-table-wrap">
                 <table className="workspace-members-table">
@@ -293,7 +382,7 @@ function WorkSpaceMembersPage({
                             <select
                               aria-label={`Role for ${member.email}`}
                               className="workspace-member-role-select"
-                              disabled={member.status !== 'Active'}
+                              disabled={member.status !== 'Active' || busyMemberId === member.id}
                               onChange={(event) => handleRoleChange(member, event.target.value)}
                               value={member.role}
                             >
@@ -314,10 +403,21 @@ function WorkSpaceMembersPage({
                             <button
                               aria-label={`Revoke invitation for ${member.email}`}
                               className="workspace-revoke-button"
+                              disabled={busyMemberId === member.id}
                               onClick={() => revokeInvite(member)}
                               type="button"
                             >
                               Revoke
+                            </button>
+                          ) : member.role !== 'Owner' ? (
+                            <button
+                              aria-label={`Remove ${member.name} from workspace`}
+                              className="workspace-revoke-button"
+                              disabled={busyMemberId === member.id}
+                              onClick={() => revokeInvite(member)}
+                              type="button"
+                            >
+                              Remove
                             </button>
                           ) : (
                             <span aria-hidden="true" className="workspace-member-action-placeholder">
@@ -349,7 +449,7 @@ function WorkSpaceMembersPage({
                         <select
                           aria-label={`Role for ${member.email}`}
                           className="workspace-member-role-select"
-                          disabled={member.status !== 'Active'}
+                          disabled={member.status !== 'Active' || busyMemberId === member.id}
                           onChange={(event) => handleRoleChange(member, event.target.value)}
                           value={member.role}
                         >
@@ -361,13 +461,14 @@ function WorkSpaceMembersPage({
                         <span />
                         {member.status}
                       </span>
-                      {member.status === 'Invited' && (
+                      {(member.status === 'Invited' || member.role !== 'Owner') && (
                         <button
                           className="workspace-revoke-button"
+                          disabled={busyMemberId === member.id}
                           onClick={() => revokeInvite(member)}
                           type="button"
                         >
-                          Revoke invite
+                          {member.status === 'Invited' ? 'Revoke invite' : 'Remove member'}
                         </button>
                       )}
                     </div>

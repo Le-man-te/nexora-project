@@ -23,7 +23,7 @@ function TaskPageShell({ children, active = 'Tasks', eyebrow = 'STUDIO NORTH' })
         </div>
       </main>
       <footer className="tasks-footer">
-        <span>Workspace data is currently a local prototype.</span>
+        <span>Workspace data is saved to your account.</span>
         <Link to="/dashboard">Back to dashboard</Link>
       </footer>
     </div>

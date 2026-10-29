@@ -1,5 +1,7 @@
 import { useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
+import { createWorkspace } from '../../../features/workspaces/components/workspaces.api.js'
+import { setActiveWorkspaceId } from '../../../features/workspaces/workspaceState.js'
 import './CreateWorkSpacePage.css'
 
 const visibilityOptions = [
@@ -52,6 +54,7 @@ function WorkspaceIcon({ name, size = 18 }) {
 }
 
 function CreateWorkSpacePage({ onCreate }) {
+  const navigate = useNavigate()
   const [name, setName] = useState('')
   const [slug, setSlug] = useState('')
   const [slugWasEdited, setSlugWasEdited] = useState(false)
@@ -59,6 +62,8 @@ function CreateWorkSpacePage({ onCreate }) {
   const [teamSize, setTeamSize] = useState('Just me')
   const [visibility, setVisibility] = useState('private')
   const [submitted, setSubmitted] = useState(false)
+  const [error, setError] = useState('')
+  const [saving, setSaving] = useState(false)
 
   function updateName(value) {
     setName(value)
@@ -72,19 +77,30 @@ function CreateWorkSpacePage({ onCreate }) {
     setSubmitted(false)
   }
 
-  function handleSubmit(event) {
+  async function handleSubmit(event) {
     event.preventDefault()
-
     const workspace = {
       name: name.trim(),
       slug,
       description: description.trim(),
       teamSize,
       visibility,
+      memberInvites: true,
     }
-
-    onCreate?.(workspace)
-    setSubmitted(true)
+    setSaving(true)
+    setError('')
+    try {
+      const result = await createWorkspace(workspace)
+      onCreate?.(result.workspace)
+      setActiveWorkspaceId(result.workspace.id)
+      setSubmitted(true)
+      navigate('/workspaces')
+    } catch (saveError) {
+      setError(saveError.message || 'Could not create workspace.')
+      setSubmitted(false)
+    } finally {
+      setSaving(false)
+    }
   }
 
   const initials = name.trim()
@@ -224,15 +240,16 @@ function CreateWorkSpacePage({ onCreate }) {
             {submitted && (
               <p className="workspace-submit-feedback" role="status">
                 <WorkspaceIcon name="check" size={17} />
-                Workspace details are ready. Connect a creation service to save this workspace.
+                Workspace created successfully.
               </p>
             )}
+            {error && <p className="workspace-submit-feedback" role="alert">{error}</p>}
 
             <div className="workspace-form-actions">
               <Link className="workspace-cancel-button" to="/dashboard">Cancel</Link>
-              <button className="workspace-create-button" type="submit">
+              <button className="workspace-create-button" disabled={saving} type="submit">
                 <WorkspaceIcon name="users" size={17} />
-                Create workspace
+                {saving ? 'Creating…' : 'Create workspace'}
               </button>
             </div>
           </form>

@@ -1,23 +1,25 @@
 import { useMemo, useState } from 'react'
 import TaskList from './TaskList.jsx'
 import TaskPageShell from './TaskPageShell.jsx'
-import { getDueLabel, sampleTasks, taskProjects } from './taskData.js'
+import { getDueLabel } from './taskData.js'
+import useWorkspaceTasks from './useWorkspaceTasks.js'
 import './TasksPages.css'
 
 const filters = ['All', 'To do', 'In progress', 'Done']
 
-function TasksPage({ initialTasks = sampleTasks, onCreateTask, onTaskUpdate }) {
-  const [tasks, setTasks] = useState(initialTasks)
+function TasksPage({ onCreateTask, onTaskUpdate }) {
+  const { projects, members, tasks, loading, error, setError, saveTask, addTask } = useWorkspaceTasks()
   const [filter, setFilter] = useState('All')
   const [search, setSearch] = useState('')
   const [priorityFilter, setPriorityFilter] = useState('All priorities')
   const [createOpen, setCreateOpen] = useState(false)
   const [notice, setNotice] = useState('')
+  const [saving, setSaving] = useState(false)
   const [draft, setDraft] = useState({
     title: '',
     description: '',
-    project: taskProjects[0],
-    assignee: 'Leta Tesfaye',
+    projectId: '',
+    assignedTo: '',
     dueDate: '',
     priority: 'Medium',
   })
@@ -42,49 +44,49 @@ function TasksPage({ initialTasks = sampleTasks, onCreateTask, onTaskUpdate }) {
     (task) => task.status !== 'Done' && getDueLabel(task.dueDate) === 'Overdue',
   ).length
 
-  function updateTask(task, changes) {
-    const updated = { ...task, ...changes }
-    setTasks((current) =>
-      current.map((item) => item.id === task.id ? updated : item),
-    )
-    onTaskUpdate?.(updated)
-    return updated
+  async function updateTask(task, changes) {
+    try {
+      const updated = await saveTask(task, changes)
+      onTaskUpdate?.(updated)
+      setError('')
+      return updated
+    } catch (saveError) {
+      setError(saveError.message || 'Could not save task changes.')
+      return null
+    }
   }
 
-  function toggleTask(task) {
+  async function toggleTask(task) {
     const nextStatus = task.status === 'Done' ? 'To do' : 'Done'
-    updateTask(task, { status: nextStatus })
+    await updateTask(task, { status: nextStatus })
   }
 
-  function submitTask(event) {
+  async function submitTask(event) {
     event.preventDefault()
-    const task = {
-      id: `task-${Date.now()}`,
+    const values = {
       title: draft.title.trim(),
       description: draft.description.trim(),
-      project: draft.project,
-      assignee: draft.assignee,
-      initials: draft.assignee.split(/\s+/).map((word) => word[0]).join('').toUpperCase(),
-      dueDate: draft.dueDate,
+      projectId: draft.projectId,
+      assignedTo: draft.assignedTo || null,
+      dueDate: draft.dueDate || null,
       priority: draft.priority,
-      status: 'To do',
     }
-
-    onCreateTask?.(task)
-    setTasks((current) => [task, ...current])
-    setDraft({
-      title: '',
-      description: '',
-      project: taskProjects[0],
-      assignee: 'Leta Tesfaye',
-      dueDate: '',
-      priority: 'Medium',
-    })
-    setCreateOpen(false)
-    setFilter('All')
-    setPriorityFilter('All priorities')
-    setSearch('')
-    setNotice(`“${task.title}” was added to your task list.`)
+    setSaving(true)
+    try {
+      const task = await addTask(values)
+      onCreateTask?.(task)
+      setDraft({ title: '', description: '', projectId: '', assignedTo: '', dueDate: '', priority: 'Medium' })
+      setCreateOpen(false)
+      setFilter('All')
+      setPriorityFilter('All priorities')
+      setSearch('')
+      setNotice(`“${task.title}” was saved to the workspace.`)
+      setError('')
+    } catch (saveError) {
+      setError(saveError.message || 'Could not create task.')
+    } finally {
+      setSaving(false)
+    }
   }
 
   return (
@@ -155,9 +157,10 @@ function TasksPage({ initialTasks = sampleTasks, onCreateTask, onTaskUpdate }) {
             )
           })}
         </div>
-        <TaskList onToggle={toggleTask} tasks={visibleTasks} />
+        {loading ? <p className="tasks-notice" role="status">Loading workspace tasks…</p> : <TaskList onToggle={toggleTask} tasks={visibleTasks} />}
       </section>
 
+      {error && <div className="tasks-notice" role="alert">{error}</div>}
       {notice && (
         <div className="tasks-notice" role="status">
           {notice}
@@ -213,10 +216,13 @@ function TasksPage({ initialTasks = sampleTasks, onCreateTask, onTaskUpdate }) {
                 Project
                 <select
                   id="new-task-project"
-                  onChange={(event) => setDraft((current) => ({ ...current, project: event.target.value }))}
-                  value={draft.project}
+                  disabled={projects.length === 0}
+                  onChange={(event) => setDraft((current) => ({ ...current, projectId: event.target.value }))}
+                  required
+                  value={draft.projectId}
                 >
-                  {taskProjects.map((project) => <option key={project}>{project}</option>)}
+                  <option value="">Select a project</option>
+                  {projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}
                 </select>
               </label>
               <div className="tasks-form-row">
@@ -224,13 +230,11 @@ function TasksPage({ initialTasks = sampleTasks, onCreateTask, onTaskUpdate }) {
                   Assignee
                   <select
                     id="new-task-assignee"
-                    onChange={(event) => setDraft((current) => ({ ...current, assignee: event.target.value }))}
-                    value={draft.assignee}
+                    onChange={(event) => setDraft((current) => ({ ...current, assignedTo: event.target.value }))}
+                    value={draft.assignedTo}
                   >
-                    <option>Leta Tesfaye</option>
-                    <option>Jordan Davis</option>
-                    <option>Sam Kim</option>
-                    <option>Riley Lee</option>
+                    <option value="">Unassigned</option>
+                    {members.map((member) => <option key={member.id} value={member.id}>{member.name}</option>)}
                   </select>
                 </label>
                 <label className="tasks-form-field" htmlFor="new-task-priority">
@@ -257,7 +261,9 @@ function TasksPage({ initialTasks = sampleTasks, onCreateTask, onTaskUpdate }) {
               </label>
               <div className="tasks-create-actions">
                 <button className="tasks-create-cancel" onClick={() => setCreateOpen(false)} type="button">Cancel</button>
-                <button className="tasks-create-submit" type="submit">Create task</button>
+                <button className="tasks-create-submit" disabled={saving || projects.length === 0} type="submit">
+                  {saving ? 'Saving…' : 'Create task'}
+                </button>
               </div>
             </form>
           </section>

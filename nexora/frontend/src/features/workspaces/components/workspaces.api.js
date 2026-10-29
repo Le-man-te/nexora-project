@@ -91,3 +91,10 @@ export function revokeWorkspaceInvitation(workspaceId, invitationId, options) {
 		method: 'DELETE',
 	})
 }
+
+export function removeWorkspaceMember(workspaceId, memberId, options) {
+	return request(memberPath(workspaceId, memberId), {
+		...options,
+		method: 'DELETE',
+	})
+}

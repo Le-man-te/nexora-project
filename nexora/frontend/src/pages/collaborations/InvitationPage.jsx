@@ -96,7 +96,7 @@ function InvitationPage() {
           <span className="invite-bubble invite-bubble-one">JD</span>
           <span className="invite-bubble invite-bubble-two">SK</span>
           <span className="invite-bubble invite-bubble-three">RL</span>
-          <span className="invite-bubble invite-bubble-four">AM</span>
+          <span className="invite-bubble invite-bubble-four">LT</span>
         </div>
       </section>
 

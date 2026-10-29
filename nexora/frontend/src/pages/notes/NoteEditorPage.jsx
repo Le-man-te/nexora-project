@@ -29,7 +29,7 @@ function NoteEditorPage() {
       title: trimmedTitle,
       content: content.trim(),
       project,
-      author: existingNote?.author ?? 'Alex Morgan',
+      author: existingNote?.author ?? 'Leta Tesfaye',
       updatedAt: new Date().toISOString(),
       color: existingNote?.color ?? 'violet',
       pinned: existingNote?.pinned ?? false,

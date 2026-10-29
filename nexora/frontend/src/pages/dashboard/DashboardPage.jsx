@@ -15,9 +15,9 @@ import WelcomePanel from './components/WelcomePanel.jsx'
 import './DashboardPage.css'
 
 const projects = [
-  { name: 'Website redesign', color: 'violet', progress: 72, tasks: '18 / 25', due: 'Oct 28', members: ['AM', 'JD', 'SK'] },
+  { name: 'Website redesign', color: 'violet', progress: 72, tasks: '18 / 25', due: 'Oct 28', members: ['LT', 'JD', 'SK'] },
   { name: 'Mobile app launch', color: 'blue', progress: 46, tasks: '11 / 24', due: 'Nov 04', members: ['JD', 'RL'] },
-  { name: 'Q4 campaign', color: 'orange', progress: 28, tasks: '7 / 25', due: 'Nov 12', members: ['SK', 'AM', 'RL'] },
+  { name: 'Q4 campaign', color: 'orange', progress: 28, tasks: '7 / 25', due: 'Nov 12', members: ['SK', 'LT', 'RL'] },
 ]
 
 const startingTasks = [

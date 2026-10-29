@@ -4,13 +4,13 @@ import './WorkSpaceMembersPage.css'
 
 const initialMembers = [
   {
-    id: 'alex-morgan',
-    name: 'Alex Morgan',
-    email: 'alex@studionorth.com',
+    id: 'leta-tesfaye',
+    name: 'Leta Tesfaye',
+    email: 'leta@studionorth.com',
     role: 'Owner',
     status: 'Active',
     joined: 'You',
-    initials: 'AM',
+    initials: 'LT',
   },
   {
     id: 'jordan-davis',

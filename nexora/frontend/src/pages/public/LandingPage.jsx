@@ -48,7 +48,7 @@ function LandingPage() {
                 <span className="preview-topbar-spacer" />
                 <span className="preview-search">⌕ <i>Search anything...</i></span>
                 <span className="preview-notification">•</span>
-                <span className="preview-profile">AM</span>
+                <span className="preview-profile">LT</span>
               </div>
               <div className="preview-body">
                 <aside className="preview-sidebar">

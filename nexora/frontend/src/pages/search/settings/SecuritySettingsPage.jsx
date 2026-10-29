@@ -19,7 +19,7 @@ const initialSessions = [
 ]
 
 function SecuritySettingsPage({
-  accountEmail = 'alex@studionorth.com',
+  accountEmail = 'leta@studionorth.com',
   sessions: sessionsProp = initialSessions,
   twoFactorEnabled: twoFactorProp = false,
   onPasswordChange,

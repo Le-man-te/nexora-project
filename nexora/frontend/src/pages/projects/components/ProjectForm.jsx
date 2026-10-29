@@ -38,7 +38,7 @@ function ProjectForm({ onSubmit }) {
       color: draft.color,
       status: 'Planning',
       progress: 0,
-      members: ['Alex Morgan'],
+      members: ['Leta Tesfaye'],
       tasks: [],
     })
   }

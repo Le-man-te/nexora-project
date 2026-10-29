@@ -80,7 +80,7 @@ const projectMetrics = [
 ]
 
 const teamMetrics = [
-  { name: 'Alex Morgan', initials: 'AM', color: 'lavender', completed: 16, open: 5, share: 30 },
+  { name: 'Leta Tesfaye', initials: 'LT', color: 'lavender', completed: 16, open: 5, share: 30 },
   { name: 'Jordan Davis', initials: 'JD', color: 'peach', completed: 13, open: 7, share: 24 },
   { name: 'Sam Kim', initials: 'SK', color: 'blue', completed: 9, open: 4, share: 18 },
   { name: 'Riley Lee', initials: 'RL', color: 'mint', completed: 8, open: 6, share: 16 },
@@ -178,7 +178,7 @@ function AnalyticsPage() {
           onNavigate={navigateToSection}
           onUpgrade={() => navigate('/workspaces/settings')}
           projects={projects}
-          user={{ name: 'Alex Morgan', email: 'alex@studionorth.com', initials: 'AM' }}
+          user={{ name: 'Leta Tesfaye', email: 'leta@studionorth.com', initials: 'LT' }}
         />
       }
       navbar={

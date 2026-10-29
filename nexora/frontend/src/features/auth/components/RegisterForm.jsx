@@ -47,7 +47,7 @@ function RegisterForm() {
 					label="Your name"
 					name="name"
 					onChange={(event) => { setName(event.target.value); setError('') }}
-					placeholder="Alex Morgan"
+					placeholder="Leta Tesfaye"
 					value={name}
 				/>
 				<AuthField

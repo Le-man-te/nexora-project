@@ -8,7 +8,7 @@ function Sidebar({
   projects = [],
   workspace = { name: 'Studio North', description: 'Free workspace' },
   workspaces = [],
-  user = { name: 'Alex Morgan', email: 'alex@studionorth.com', initials: 'AM' },
+  user = { name: 'Leta Tesfaye', email: 'leta@studionorth.com', initials: 'LT' },
   onNavigate,
   onWorkspaceChange,
   onAddProject,

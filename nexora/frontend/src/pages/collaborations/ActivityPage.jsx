@@ -49,8 +49,8 @@ const activities = [
   },
   {
     id: 4,
-    person: 'Alex Morgan',
-    initials: 'AM',
+    person: 'Leta Tesfaye',
+    initials: 'LT',
     color: 'green',
     action: 'invited a new teammate',
     subject: 'Morgan Chen',
@@ -110,7 +110,7 @@ function ActivityPage() {
           <div><strong>18</strong><span>updates this week</span></div>
           <div><strong>06</strong><span>teammates active</span></div>
           <div className="activity-avatars" aria-label="Your active teammates">
-            {['JD', 'SK', 'RL', 'AM'].map((initials, index) => (
+            {['JD', 'SK', 'RL', 'LT'].map((initials, index) => (
               <span className={`activity-mini-avatar ${['lavender', 'peach', 'blue', 'green'][index]}`} key={initials}>{initials}</span>
             ))}
             <span className="activity-avatar-more">+2</span>

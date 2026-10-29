@@ -4,8 +4,8 @@ export const sampleTasks = [
     title: 'Review homepage wireframes',
     description: 'Share feedback on the latest homepage layouts before the design review.',
     project: 'Website redesign',
-    assignee: 'Alex Morgan',
-    initials: 'AM',
+    assignee: 'Leta Tesfaye',
+    initials: 'LT',
     dueDate: '2026-10-20',
     priority: 'High',
     status: 'In progress',
@@ -26,8 +26,8 @@ export const sampleTasks = [
     title: 'Finalize onboarding flow',
     description: 'Confirm the final onboarding steps and prepare the handoff notes.',
     project: 'Mobile app launch',
-    assignee: 'Alex Morgan',
-    initials: 'AM',
+    assignee: 'Leta Tesfaye',
+    initials: 'LT',
     dueDate: '2026-10-21',
     priority: 'High',
     status: 'In progress',
@@ -59,8 +59,8 @@ export const sampleTasks = [
     title: 'Review launch email copy',
     description: 'Proofread the campaign launch email and confirm the final call to action.',
     project: 'Q4 campaign',
-    assignee: 'Alex Morgan',
-    initials: 'AM',
+    assignee: 'Leta Tesfaye',
+    initials: 'LT',
     dueDate: '2026-10-27',
     priority: 'Low',
     status: 'To do',
@@ -73,7 +73,7 @@ export const taskProjects = [
   'Q4 campaign',
 ]
 
-export const currentUser = 'Alex Morgan'
+export const currentUser = 'Leta Tesfaye'
 
 export function formatTaskDate(dateValue, options = { month: 'short', day: 'numeric' }) {
   if (!dateValue) return 'No due date'

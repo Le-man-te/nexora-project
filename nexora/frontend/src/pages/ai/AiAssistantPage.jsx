@@ -128,7 +128,7 @@ function AssistantQuestion({ message }) {
   return (
     <div className="ai-message-row user-row">
       <article className="ai-message user-message"><p>{message.content}</p></article>
-      <span aria-label="Alex Morgan" className="ai-user-avatar">AM</span>
+      <span aria-label="Leta Tesfaye" className="ai-user-avatar">LT</span>
     </div>
   )
 }
@@ -196,7 +196,7 @@ function AiAssistantPage() {
           onNavigate={navigateToSection}
           onUpgrade={() => navigate('/workspaces/settings')}
           projects={projects}
-          user={{ name: 'Alex Morgan', email: 'alex@studionorth.com', initials: 'AM' }}
+          user={{ name: 'Leta Tesfaye', email: 'leta@studionorth.com', initials: 'LT' }}
         />
       }
       navbar={
@@ -299,7 +299,7 @@ function AiAssistantPage() {
               <strong>Studio North</strong>
               <span>4 teammates · 3 active projects</span>
               <div className="ai-context-avatars" aria-label="4 workspace teammates">
-                <i className="lavender">AM</i><i className="peach">JD</i><i className="blue">SK</i><i className="mint">RL</i>
+                <i className="lavender">LT</i><i className="peach">JD</i><i className="blue">SK</i><i className="mint">RL</i>
               </div>
             </section>
             <section className="ai-context-links">

@@ -2,8 +2,8 @@ import { useEffect, useRef, useState } from 'react'
 import './ProfileSettingsPage.css'
 
 const defaultProfile = {
-  name: 'Alex Morgan',
-  email: 'alex@studionorth.com',
+  name: 'Leta Tesfaye',
+  email: 'leta@studionorth.com',
   role: 'Product Designer',
   bio: 'Designing thoughtful experiences with the Studio North team.',
   timezone: 'America/Los_Angeles',

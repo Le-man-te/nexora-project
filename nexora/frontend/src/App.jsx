@@ -13,7 +13,7 @@ const projects = [
     name: 'Website redesign',
     description: 'Refresh the marketing site and improve conversion.',
     color: 'violet',
-    initials: ['AM', 'JD', 'SK'],
+    initials: ['LT', 'JD', 'SK'],
     progress: 72,
     due: 'Oct 28',
     tasks: '18 / 25 tasks',
@@ -31,7 +31,7 @@ const projects = [
     name: 'Q4 campaign',
     description: 'Plan and publish the end-of-year campaign.',
     color: 'orange',
-    initials: ['SK', 'AM', 'RL'],
+    initials: ['SK', 'LT', 'RL'],
     progress: 28,
     due: 'Nov 12',
     tasks: '7 / 25 tasks',
@@ -44,7 +44,7 @@ const tasks = [
     project: 'Website redesign',
     due: 'Today',
     priority: 'High',
-    assignee: 'AM',
+    assignee: 'LT',
     mine: true,
     completed: false,
   },
@@ -62,7 +62,7 @@ const tasks = [
     project: 'Mobile app launch',
     due: 'Tomorrow',
     priority: 'High',
-    assignee: 'AM',
+    assignee: 'LT',
     mine: true,
     completed: false,
   },
@@ -191,7 +191,7 @@ function App() {
           onNavigate={navigateToSection}
           onUpgrade={() => setActiveSection('Plans')}
           projects={projects}
-          user={{ name: 'Alex Morgan', email: 'alex@studionorth.com', initials: 'AM' }}
+          user={{ name: 'Leta Tesfaye', email: 'leta@studionorth.com', initials: 'LT' }}
         />
       }
       navbar={

@@ -17,7 +17,7 @@ function TasksPage({ initialTasks = sampleTasks, onCreateTask, onTaskUpdate }) {
     title: '',
     description: '',
     project: taskProjects[0],
-    assignee: 'Alex Morgan',
+    assignee: 'Leta Tesfaye',
     dueDate: '',
     priority: 'Medium',
   })
@@ -76,7 +76,7 @@ function TasksPage({ initialTasks = sampleTasks, onCreateTask, onTaskUpdate }) {
       title: '',
       description: '',
       project: taskProjects[0],
-      assignee: 'Alex Morgan',
+      assignee: 'Leta Tesfaye',
       dueDate: '',
       priority: 'Medium',
     })
@@ -227,7 +227,7 @@ function TasksPage({ initialTasks = sampleTasks, onCreateTask, onTaskUpdate }) {
                     onChange={(event) => setDraft((current) => ({ ...current, assignee: event.target.value }))}
                     value={draft.assignee}
                   >
-                    <option>Alex Morgan</option>
+                    <option>Leta Tesfaye</option>
                     <option>Jordan Davis</option>
                     <option>Sam Kim</option>
                     <option>Riley Lee</option>

@@ -60,7 +60,7 @@ function CollaborationLayout({ activeSection, children }) {
           onNavigate={navigateToSection}
           onUpgrade={() => setNotice('Workspace plans are coming soon.')}
           projects={projects}
-          user={{ name: 'Alex Morgan', email: 'alex@studionorth.com', initials: 'AM' }}
+          user={{ name: 'Leta Tesfaye', email: 'leta@studionorth.com', initials: 'LT' }}
         />
       }
       navbar={

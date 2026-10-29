@@ -1,21 +1,32 @@
-const { getPool } = require('../../database/pools');
+const { getMongoDatabase } = require('../../database/mongo');
 const ApiError = require('../../utils/ApiErroir');
 const { parsePagination } = require('../../utils/pagination');
 
-async function list(userId, query = {}, pool = getPool()) {
+async function list(userId, query = {}, database = getMongoDatabase()) {
   const workspaceId = typeof query.workspaceId === 'string' ? query.workspaceId : '';
   if (!workspaceId) throw ApiError.badRequest('Workspace id is required.');
   const { limit, offset } = parsePagination(query);
-  const [rows] = await pool.execute(
-    `SELECT a.id, a.action, a.entity_type, a.entity_id, a.metadata, a.created_at,
-            u.id AS actor_id, u.name AS actor_name
-     FROM activity_logs a
-     JOIN workspace_members wm ON wm.workspace_id = a.workspace_id AND wm.user_id = ?
-     LEFT JOIN users u ON u.id = a.actor_id
-     WHERE a.workspace_id = ? ORDER BY a.created_at DESC LIMIT ? OFFSET ?`,
-    [userId, workspaceId, limit, offset],
-  );
-  return rows;
+  const membership = await database.collection('workspace_members').findOne({
+    workspace_id: workspaceId,
+    user_id: userId,
+  });
+  if (!membership) throw ApiError.notFound('Workspace not found.');
+  const rows = await database.collection('activity_logs')
+    .find({ workspace_id: workspaceId })
+    .project({ _id: 0 })
+    .sort({ created_at: -1 })
+    .skip(offset)
+    .limit(limit)
+    .toArray();
+  const actorIds = rows.map(({ actor_id }) => actor_id).filter(Boolean);
+  const users = await database.collection('users').find({ id: { $in: actorIds } })
+    .project({ _id: 0, id: 1, name: 1 }).toArray();
+  const names = new Map(users.map(({ id, name }) => [id, name]));
+  return rows.map(({ actor_id, ...row }) => ({
+    ...row,
+    actor_id: actor_id || null,
+    actor_name: names.get(actor_id) || null,
+  }));
 }
 
 module.exports = { list };

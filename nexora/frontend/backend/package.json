@@ -8,6 +8,8 @@
     "dev": "nodemon server.js",
     "migrate": "node database/migrate.js",
     "seed": "node database/seed.js",
+    "mongo:check": "node database/check-mongodb.js",
+    "migrate:mysql-to-mongo": "node database/migrate-mysql-to-mongodb.js",
     "test": "node --test \"test/**/*.test.js\" \"tests/**/*.test.js\" \"tests/**/*.tests.js\" \"database/e2e/**/*.spec.js\""
   },
   "keywords": [],
@@ -19,6 +21,7 @@
     "dotenv": "^18.0.8",
     "express": "^5.3.0",
     "multer": "^2.0.2",
+    "mongodb": "^6.18.0",
     "mysql2": "^3.24.6"
   },
   "devDependencies": {

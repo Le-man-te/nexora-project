@@ -35,6 +35,7 @@ import AiAssistantRoute from '../pages/ai/AiAssistantRoute.jsx'
 import UnauthorizedPage from '../pages/errors/UnauthorizedPage.jsx'
 import ForbiddenPage from '../pages/errors/ForbiddenPge.jsx'
 import ServerErrorPage from '../pages/errors/ServerErrorPage.jsx'
+import AdminPage from '../pages/admin/AdminPage.jsx'
 
 const router = createBrowserRouter([
   {
@@ -76,6 +77,10 @@ const router = createBrowserRouter([
   {
     path: '/dashboard',
     element: <DashboardPage />,
+  },
+  {
+    path: '/admin',
+    element: <AdminPage />,
   },
   {
     path: '/analytics',

@@ -1,17 +1,17 @@
 const repository = require('./ai.repository');
 const provider = require('./aiprovider');
 const { validateChat } = require('./ai.validation');
-const { getPool } = require('../../database/pools');
+const { getMongoDatabase } = require('../../database/mongo');
 const ApiError = require('../../utils/ApiErroir');
 const { randomUUID } = require('node:crypto');
 
 async function assertWorkspaceMember(userId, workspaceId) {
   if (!workspaceId) return;
-  const [rows] = await getPool().execute(
-    'SELECT 1 FROM workspace_members WHERE workspace_id = ? AND user_id = ? LIMIT 1',
-    [workspaceId, userId],
-  );
-  if (!rows.length) throw ApiError.notFound('Workspace not found.');
+  const membership = await getMongoDatabase().collection('workspace_members').findOne({
+    workspace_id: workspaceId,
+    user_id: userId,
+  });
+  if (!membership) throw ApiError.notFound('Workspace not found.');
 }
 
 async function chat(userId, input) {

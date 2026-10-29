@@ -1,11 +1,10 @@
 const { randomUUID } = require('node:crypto');
-const { getPool } = require('../database/pools');
-const { withTransaction } = require('../database/transaction');
+const { getMongoDatabase } = require('../database/mongo');
 const storage = require('./storageService');
 const ApiError = require('../utils/ApiErroir');
 const logger = require('../config/logger');
 
-async function saveUploads(userId, files, pool = getPool()) {
+async function saveUploads(userId, files, database = getMongoDatabase()) {
   if (!Array.isArray(files) || files.length < 1 || files.length > 5) {
     throw ApiError.badRequest('Upload one to five files at a time.');
   }
@@ -23,17 +22,24 @@ async function saveUploads(userId, files, pool = getPool()) {
       });
     }
 
-    await withTransaction(pool, async (connection) => {
-      for (const file of saved) {
-        await connection.execute(
-          `INSERT INTO stored_files
-             (id, uploaded_by, storage_key, original_name, mime_type, size_bytes)
-           VALUES (?, ?, ?, ?, ?, ?)`,
-          [file.id, userId, file.storageKey, file.originalName, file.mimeType, file.size],
-        );
-      }
-    });
+    const now = new Date();
+    await database.collection('stored_files').insertMany(saved.map((file) => ({
+      id: file.id,
+      uploaded_by: userId,
+      storage_key: file.storageKey,
+      original_name: file.originalName,
+      mime_type: file.mimeType,
+      size_bytes: file.size,
+      created_at: now,
+    })));
   } catch (error) {
+    try {
+      await database.collection('stored_files').deleteMany({
+        id: { $in: saved.map(({ id }) => id) },
+      });
+    } catch (cleanupError) {
+      logger.error('Upload metadata cleanup failed.', { message: cleanupError.message });
+    }
     for (const file of saved) {
       try {
         await storage.deleteFile(file.storageKey);
@@ -53,14 +59,12 @@ async function saveUploads(userId, files, pool = getPool()) {
   }));
 }
 
-async function getUpload(userId, id, pool = getPool()) {
-  const [rows] = await pool.execute(
-    `SELECT storage_key, original_name, mime_type, size_bytes
-     FROM stored_files WHERE id = ? AND uploaded_by = ? LIMIT 1`,
-    [id, userId],
-  );
-  if (!rows.length) throw ApiError.notFound('File not found.');
-  const file = rows[0];
+async function getUpload(userId, id, database = getMongoDatabase()) {
+  const file = await database.collection('stored_files').findOne({
+    id,
+    uploaded_by: userId,
+  });
+  if (!file) throw ApiError.notFound('File not found.');
   const buffer = await storage.readFile(file.storage_key);
   return { buffer, originalName: file.original_name, size: Number(file.size_bytes) };
 }

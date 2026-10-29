@@ -1,13 +1,12 @@
 const {
   randomUUID,
-  createHash,
 } = require('node:crypto');
 const express = require('express');
 const cors = require('cors');
 const corsOptions = require('./config/cors');
 const env = require('./config/env');
-const { getPool } = require('./database/pools');
-const { withTransaction } = require('./database/transaction');
+const { getMongoDatabase } = require('./database/mongo');
+const { removeProject, removeWorkspace } = require('./database/cleanup');
 const sessionService = require('./services/sessionService');
 const { hashPassword, verifyPassword } = require('./security/password');
 const requestLogger = require('./middleware/requestLogger');
@@ -38,10 +37,6 @@ class HttpError extends Error {
     super(message);
     this.status = status;
   }
-}
-
-function hashToken(token) {
-  return createHash('sha256').update(token).digest('hex');
 }
 
 function getCookie(req, name) {
@@ -141,53 +136,55 @@ function requireText(value, label, maximum) {
 }
 
 async function requireWorkspaceMember(workspaceId, userId, minimumRole = 'member') {
-  const [rows] = await getPool().execute(
-    `SELECT w.*, wm.role
-     FROM workspaces w
-     JOIN workspace_members wm ON wm.workspace_id = w.id
-     WHERE w.id = ? AND wm.user_id = ? AND w.archived_at IS NULL
-     LIMIT 1`,
-    [workspaceId, userId],
-  );
-  if (rows.length === 0) throw new HttpError(404, 'Workspace not found.');
-  if (minimumRole === 'admin' && !['owner', 'admin'].includes(rows[0].role)) {
+  const database = getMongoDatabase();
+  const membership = await database.collection('workspace_members').findOne({
+    workspace_id: workspaceId,
+    user_id: userId,
+  });
+  const workspace = await database.collection('workspaces').findOne({
+    id: workspaceId,
+    archived_at: null,
+  });
+  if (!membership || !workspace) throw new HttpError(404, 'Workspace not found.');
+  if (minimumRole === 'admin' && !['owner', 'admin'].includes(membership.role)) {
     throw new HttpError(403, 'Workspace administrator permission is required.');
   }
-  return rows[0];
+  return { ...workspace, role: membership.role };
 }
 
 async function requireProjectMember(projectId, userId) {
-  const [rows] = await getPool().execute(
-    `SELECT p.* FROM projects p
-     JOIN workspace_members wm ON wm.workspace_id = p.workspace_id
-     WHERE p.id = ? AND wm.user_id = ? LIMIT 1`,
-    [projectId, userId],
-  );
-  if (rows.length === 0) throw new HttpError(404, 'Project not found.');
-  return rows[0];
+  const database = getMongoDatabase();
+  const project = await database.collection('projects').findOne({ id: projectId });
+  if (!project) throw new HttpError(404, 'Project not found.');
+  const membership = await database.collection('workspace_members').findOne({
+    workspace_id: project.workspace_id,
+    user_id: userId,
+  });
+  if (!membership) throw new HttpError(404, 'Project not found.');
+  return project;
 }
 
 async function assertProjectAssignee(projectId, assigneeId) {
   if (assigneeId === null || assigneeId === undefined || assigneeId === '') return;
-  const [rows] = await getPool().execute(
-    `SELECT 1 FROM projects p
-     JOIN workspace_members wm ON wm.workspace_id = p.workspace_id
-     WHERE p.id = ? AND wm.user_id = ? LIMIT 1`,
-    [projectId, assigneeId],
-  );
-  if (rows.length === 0) throw new HttpError(400, 'Assignee must be a member of the project workspace.');
+  const database = getMongoDatabase();
+  const project = await database.collection('projects').findOne({ id: projectId });
+  const membership = project && await database.collection('workspace_members').findOne({
+    workspace_id: project.workspace_id,
+    user_id: assigneeId,
+  });
+  if (!membership) throw new HttpError(400, 'Assignee must be a member of the project workspace.');
 }
 
 async function requireTaskMember(taskId, userId) {
-  const [rows] = await getPool().execute(
-    `SELECT t.* FROM tasks t
-     JOIN projects p ON p.id = t.project_id
-     JOIN workspace_members wm ON wm.workspace_id = p.workspace_id
-     WHERE t.id = ? AND wm.user_id = ? LIMIT 1`,
-    [taskId, userId],
-  );
-  if (rows.length === 0) throw new HttpError(404, 'Task not found.');
-  return rows[0];
+  const database = getMongoDatabase();
+  const task = await database.collection('tasks').findOne({ id: taskId });
+  const project = task && await database.collection('projects').findOne({ id: task.project_id });
+  const membership = project && await database.collection('workspace_members').findOne({
+    workspace_id: project.workspace_id,
+    user_id: userId,
+  });
+  if (!task || !membership) throw new HttpError(404, 'Task not found.');
+  return task;
 }
 
 app.disable('x-powered-by');
@@ -218,7 +215,7 @@ app.get(['/health', '/api/health'], (_req, res) => {
 
 app.get('/ready', async (_req, res, next) => {
   try {
-    await getPool().query('SELECT 1');
+    await getMongoDatabase().command({ ping: 1 });
     res.json({ ok: true, database: 'connected' });
   } catch (error) {
     next(error);
@@ -237,12 +234,18 @@ app.post('/api/auth/register', authRateLimit, async (req, res) => {
 
   const userId = randomUUID();
   try {
-    await getPool().execute(
-      'INSERT INTO users (id, name, email, password_hash) VALUES (?, ?, ?, ?)',
-      [userId, name, email, await hashPassword(password)],
-    );
+    const now = new Date();
+    await getMongoDatabase().collection('users').insertOne({
+      id: userId,
+      name,
+      email,
+      password_hash: await hashPassword(password),
+      avatar_url: null,
+      created_at: now,
+      updated_at: now,
+    });
   } catch (error) {
-    if (error.code === 'ER_DUP_ENTRY') throw new HttpError(409, 'An account with this email already exists.');
+    if (error.code === 11000) throw new HttpError(409, 'An account with this email already exists.');
     throw error;
   }
   const user = { id: userId, name, email, avatar_url: null };
@@ -261,15 +264,15 @@ app.post('/api/auth/login', authRateLimit, async (req, res) => {
   if (!EMAIL_PATTERN.test(email) || typeof password !== 'string' || !password) {
     throw new HttpError(400, 'A valid email and password are required.');
   }
-  const [rows] = await getPool().execute(
-    'SELECT id, name, email, password_hash, avatar_url FROM users WHERE email = ? LIMIT 1',
-    [email],
+  const user = await getMongoDatabase().collection('users').findOne(
+    { email },
+    { projection: { id: 1, name: 1, email: 1, password_hash: 1, avatar_url: 1, disabled_at: 1 } },
   );
-  const user = rows[0];
   const passwordMatches = await verifyPassword(password, user?.password_hash || DUMMY_PASSWORD_HASH);
   if (!user || !passwordMatches) {
     throw new HttpError(401, 'Email or password is incorrect.');
   }
+  if (user.disabled_at) throw new HttpError(403, 'This account has been disabled.');
   await createSession(res, user.id);
   res.json({ message: 'Login successful.', user: userPayload(user) });
 });
@@ -290,13 +293,19 @@ app.get('/api/auth/me', requireAuth, (req, res) => {
 app.use('/api/workspaces', requireAuth);
 
 app.get('/api/workspaces', async (req, res) => {
-  const [rows] = await getPool().execute(
-    `SELECT w.*, wm.role FROM workspaces w
-     JOIN workspace_members wm ON wm.workspace_id = w.id
-     WHERE wm.user_id = ? AND w.archived_at IS NULL ORDER BY w.created_at`,
-    [req.user.id],
-  );
-  res.json({ workspaces: rows.map(workspacePayload) });
+  const database = getMongoDatabase();
+  const memberships = await database.collection('workspace_members')
+    .find({ user_id: req.user.id })
+    .toArray();
+  const roles = new Map(memberships.map(({ workspace_id, role }) => [workspace_id, role]));
+  const rows = await database.collection('workspaces')
+    .find({ id: { $in: [...roles.keys()] }, archived_at: null })
+    .sort({ created_at: 1 })
+    .toArray();
+  res.json({ workspaces: rows.map((workspace) => workspacePayload({
+    ...workspace,
+    role: roles.get(workspace.id),
+  })) });
 });
 
 app.post('/api/workspaces', async (req, res) => {
@@ -310,30 +319,38 @@ app.post('/api/workspaces', async (req, res) => {
   const id = randomUUID();
 
   try {
-    await withTransaction(getPool(), async (connection) => {
-      await connection.execute(
-        `INSERT INTO workspaces (id, name, slug, description, team_size, visibility, member_invites, created_by)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-        [
-          id, name, slug, req.body.description || null, req.body.teamSize || null,
-          visibility, req.body.memberInvites === false ? 0 : 1, req.user.id,
-        ],
-      );
-      await connection.execute(
-        "INSERT INTO workspace_members (id, workspace_id, user_id, role) VALUES (?, ?, ?, 'owner')",
-        [randomUUID(), id, req.user.id],
-      );
+    const now = new Date();
+    await getMongoDatabase().collection('workspaces').insertOne({
+      id,
+      name,
+      slug,
+      description: req.body.description || null,
+      team_size: req.body.teamSize || null,
+      visibility,
+      member_invites: req.body.memberInvites !== false,
+      created_by: req.user.id,
+      created_at: now,
+      updated_at: now,
+      archived_at: null,
     });
+    try {
+      await getMongoDatabase().collection('workspace_members').insertOne({
+        id: randomUUID(),
+        workspace_id: id,
+        user_id: req.user.id,
+        role: 'owner',
+        created_at: now,
+      });
+    } catch (error) {
+      await getMongoDatabase().collection('workspaces').deleteOne({ id });
+      throw error;
+    }
   } catch (error) {
-    if (error.code === 'ER_DUP_ENTRY') throw new HttpError(409, 'That workspace URL is already in use.');
+    if (error.code === 11000) throw new HttpError(409, 'That workspace URL is already in use.');
     throw error;
   }
-  const [rows] = await getPool().execute(
-    `SELECT w.*, wm.role FROM workspaces w JOIN workspace_members wm ON wm.workspace_id = w.id
-     WHERE w.id = ? AND wm.user_id = ?`,
-    [id, req.user.id],
-  );
-  res.status(201).json({ workspace: workspacePayload(rows[0]) });
+  const workspace = await requireWorkspaceMember(id, req.user.id);
+  res.status(201).json({ workspace: workspacePayload(workspace) });
 });
 
 app.get('/api/workspaces/:id', async (req, res) => {
@@ -358,54 +375,63 @@ app.patch('/api/workspaces/:id', async (req, res) => {
     }],
     memberInvites: ['member_invites', (value) => {
       if (typeof value !== 'boolean') throw new HttpError(400, 'Member invitation permission must be true or false.');
-      return value ? 1 : 0;
+      return value;
     }],
   };
-  const updates = [];
-  const values = [];
+  const updates = {};
   for (const [key, [column, validate]] of Object.entries(fields)) {
     if (Object.hasOwn(req.body || {}, key)) {
-      updates.push(`${column} = ?`);
-      values.push(validate(req.body[key]));
+      updates[column] = validate(req.body[key]);
     }
   }
-  if (updates.length === 0) throw new HttpError(400, 'No valid workspace changes were provided.');
+  if (Object.keys(updates).length === 0) throw new HttpError(400, 'No valid workspace changes were provided.');
   try {
-    await getPool().execute(`UPDATE workspaces SET ${updates.join(', ')} WHERE id = ?`, [...values, workspace.id]);
+    updates.updated_at = new Date();
+    await getMongoDatabase().collection('workspaces').updateOne({ id: workspace.id }, { $set: updates });
   } catch (error) {
-    if (error.code === 'ER_DUP_ENTRY') throw new HttpError(409, 'That workspace URL is already in use.');
+    if (error.code === 11000) throw new HttpError(409, 'That workspace URL is already in use.');
     throw error;
   }
-  const [rows] = await getPool().execute(
-    `SELECT w.*, wm.role FROM workspaces w JOIN workspace_members wm ON wm.workspace_id = w.id
-     WHERE w.id = ? AND wm.user_id = ?`,
-    [workspace.id, req.user.id],
-  );
-  res.json({ workspace: workspacePayload(rows[0]) });
+  res.json({ workspace: workspacePayload(await requireWorkspaceMember(workspace.id, req.user.id)) });
 });
 
 app.post('/api/workspaces/:id/archive', async (req, res) => {
   const workspace = await requireWorkspaceMember(req.params.id, req.user.id, 'admin');
-  await getPool().execute('UPDATE workspaces SET archived_at = UTC_TIMESTAMP() WHERE id = ?', [workspace.id]);
+  await getMongoDatabase().collection('workspaces').updateOne(
+    { id: workspace.id },
+    { $set: { archived_at: new Date(), updated_at: new Date() } },
+  );
   res.json({ message: 'Workspace archived successfully.' });
 });
 
 app.delete('/api/workspaces/:id', async (req, res) => {
   const workspace = await requireWorkspaceMember(req.params.id, req.user.id, 'admin');
   if (workspace.role !== 'owner') throw new HttpError(403, 'Only a workspace owner can delete it.');
-  await getPool().execute('DELETE FROM workspaces WHERE id = ?', [workspace.id]);
+  await removeWorkspace(getMongoDatabase(), workspace.id);
   res.json({ message: 'Workspace deleted successfully.' });
 });
 
 app.get('/api/workspaces/:id/members', async (req, res) => {
   await requireWorkspaceMember(req.params.id, req.user.id);
-  const [rows] = await getPool().execute(
-    `SELECT u.id, u.name, u.email, u.avatar_url, wm.role, wm.created_at
-     FROM workspace_members wm JOIN users u ON u.id = wm.user_id
-     WHERE wm.workspace_id = ? ORDER BY wm.created_at`,
-    [req.params.id],
-  );
-  res.json({ members: rows.map((row) => ({ ...userPayload(row), role: row.role, joinedAt: row.created_at })) });
+  const database = getMongoDatabase();
+  const memberships = await database.collection('workspace_members')
+    .find({ workspace_id: req.params.id })
+    .sort({ created_at: 1 })
+    .toArray();
+  const users = await database.collection('users')
+    .find({ id: { $in: memberships.map(({ user_id }) => user_id) } })
+    .toArray();
+  const usersById = new Map(users.map((user) => [user.id, user]));
+  res.json({
+    members: memberships.flatMap((membership) => {
+      const user = usersById.get(membership.user_id);
+      return user ? [{
+        ...userPayload(user),
+        role: membership.role,
+        joinedAt: membership.created_at,
+      }] : [];
+    }),
+  });
 });
 
 app.use('/api/projects', requireAuth);
@@ -413,21 +439,21 @@ app.use('/api/projects/archived', requireAuth);
 
 app.get('/api/projects/archived', async (req, res) => {
   const workspaceId = req.query.workspaceId;
-  const query = `SELECT p.* FROM projects p
-    JOIN workspace_members wm ON wm.workspace_id = p.workspace_id
-    WHERE wm.user_id = ? AND p.archived_at IS NOT NULL
-    ${workspaceId ? 'AND p.workspace_id = ?' : ''} ORDER BY p.updated_at DESC`;
-  const [rows] = await getPool().execute(query, workspaceId ? [req.user.id, workspaceId] : [req.user.id]);
+  const memberIds = await getMongoDatabase().collection('workspace_members')
+    .distinct('workspace_id', { user_id: req.user.id });
+  const filter = { workspace_id: { $in: memberIds }, archived_at: { $ne: null } };
+  if (workspaceId) filter.workspace_id = { $in: memberIds.includes(workspaceId) ? [workspaceId] : [] };
+  const rows = await getMongoDatabase().collection('projects').find(filter).sort({ updated_at: -1 }).toArray();
   res.json({ projects: rows.map(projectPayload) });
 });
 
 app.get('/api/projects', async (req, res) => {
   const workspaceId = req.query.workspaceId;
-  const query = `SELECT p.* FROM projects p
-    JOIN workspace_members wm ON wm.workspace_id = p.workspace_id
-    WHERE wm.user_id = ? AND p.archived_at IS NULL
-    ${workspaceId ? 'AND p.workspace_id = ?' : ''} ORDER BY p.updated_at DESC`;
-  const [rows] = await getPool().execute(query, workspaceId ? [req.user.id, workspaceId] : [req.user.id]);
+  const memberIds = await getMongoDatabase().collection('workspace_members')
+    .distinct('workspace_id', { user_id: req.user.id });
+  const filter = { workspace_id: { $in: memberIds }, archived_at: null };
+  if (workspaceId) filter.workspace_id = { $in: memberIds.includes(workspaceId) ? [workspaceId] : [] };
+  const rows = await getMongoDatabase().collection('projects').find(filter).sort({ updated_at: -1 }).toArray();
   res.json({ projects: rows.map(projectPayload) });
 });
 
@@ -440,13 +466,23 @@ app.post('/api/projects', async (req, res) => {
   if (!VALID_PROJECT_STATUSES.has(status)) throw new HttpError(400, 'Choose a valid project status.');
   if (!VALID_PRIORITIES.has(priority)) throw new HttpError(400, 'Choose a valid project priority.');
   const id = randomUUID();
-  await getPool().execute(
-    `INSERT INTO projects (id, workspace_id, created_by, name, description, status, priority, start_date, due_date)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [id, workspaceId, req.user.id, name, req.body.description || null, status, priority, req.body.startDate || null, req.body.dueDate || null],
-  );
-  const [rows] = await getPool().execute('SELECT * FROM projects WHERE id = ?', [id]);
-  res.status(201).json({ project: projectPayload(rows[0]), message: 'Project created successfully.' });
+  const now = new Date();
+  const project = {
+    id,
+    workspace_id: workspaceId,
+    created_by: req.user.id,
+    name,
+    description: req.body.description || null,
+    status,
+    priority,
+    start_date: req.body.startDate || null,
+    due_date: req.body.dueDate || null,
+    archived_at: null,
+    created_at: now,
+    updated_at: now,
+  };
+  await getMongoDatabase().collection('projects').insertOne(project);
+  res.status(201).json({ project: projectPayload(project), message: 'Project created successfully.' });
 });
 
 app.get('/api/projects/:id', async (req, res) => {
@@ -470,59 +506,66 @@ app.patch('/api/projects/:id', async (req, res) => {
     startDate: ['start_date', (value) => value || null],
     dueDate: ['due_date', (value) => value || null],
   };
-  const updates = [];
-  const values = [];
+  const updates = {};
   for (const [key, [column, validate]] of Object.entries(fields)) {
     if (Object.hasOwn(req.body || {}, key)) {
-      updates.push(`${column} = ?`);
-      values.push(validate(req.body[key]));
+      updates[column] = validate(req.body[key]);
     }
   }
-  if (updates.length === 0) throw new HttpError(400, 'No valid project changes were provided.');
-  await getPool().execute(`UPDATE projects SET ${updates.join(', ')} WHERE id = ?`, [...values, project.id]);
-  const [rows] = await getPool().execute('SELECT * FROM projects WHERE id = ?', [project.id]);
-  res.json({ project: projectPayload(rows[0]), message: 'Project updated successfully.' });
+  if (Object.keys(updates).length === 0) throw new HttpError(400, 'No valid project changes were provided.');
+  updates.updated_at = new Date();
+  await getMongoDatabase().collection('projects').updateOne({ id: project.id }, { $set: updates });
+  res.json({
+    project: projectPayload(await getMongoDatabase().collection('projects').findOne({ id: project.id })),
+    message: 'Project updated successfully.',
+  });
 });
 
 app.post('/api/projects/:id/archive', async (req, res) => {
   const project = await requireProjectMember(req.params.id, req.user.id);
-  await getPool().execute('UPDATE projects SET archived_at = UTC_TIMESTAMP() WHERE id = ?', [project.id]);
+  await getMongoDatabase().collection('projects').updateOne(
+    { id: project.id },
+    { $set: { archived_at: new Date(), updated_at: new Date() } },
+  );
   res.json({ message: 'Project archived successfully.' });
 });
 
 app.post('/api/projects/:id/restore', async (req, res) => {
   const project = await requireProjectMember(req.params.id, req.user.id);
-  await getPool().execute('UPDATE projects SET archived_at = NULL WHERE id = ?', [project.id]);
+  await getMongoDatabase().collection('projects').updateOne(
+    { id: project.id },
+    { $set: { archived_at: null, updated_at: new Date() } },
+  );
   res.json({ message: 'Project restored successfully.' });
 });
 
 app.delete('/api/projects/:id', async (req, res) => {
   const project = await requireProjectMember(req.params.id, req.user.id);
-  await getPool().execute('DELETE FROM projects WHERE id = ?', [project.id]);
+  await removeProject(getMongoDatabase(), project.id);
   res.json({ message: 'Project deleted successfully.' });
 });
 
 app.get('/api/tasks', requireAuth, async (req, res) => {
   const { projectId, workspaceId } = req.query;
-  let projectClause = '';
-  const values = [req.user.id];
+  const database = getMongoDatabase();
+  const workspaceIds = await database.collection('workspace_members')
+    .distinct('workspace_id', { user_id: req.user.id });
+  const projectIds = await database.collection('projects').distinct('id', {
+    workspace_id: { $in: workspaceIds },
+  });
+  let visibleProjectIds = projectIds;
   if (projectId) {
     await requireProjectMember(projectId, req.user.id);
-    projectClause = ' AND t.project_id = ?';
-    values.push(projectId);
+    visibleProjectIds = projectIds.includes(projectId) ? [projectId] : [];
   } else if (workspaceId) {
     await requireWorkspaceMember(workspaceId, req.user.id);
-    projectClause = ' AND p.workspace_id = ?';
-    values.push(workspaceId);
+    visibleProjectIds = await database.collection('projects').distinct('id', { workspace_id: workspaceId });
+    visibleProjectIds = visibleProjectIds.filter((id) => projectIds.includes(id));
   }
-  const [rows] = await getPool().execute(
-    `SELECT t.* FROM tasks t
-     JOIN projects p ON p.id = t.project_id
-     JOIN workspace_members wm ON wm.workspace_id = p.workspace_id
-     WHERE wm.user_id = ?${projectClause}
-     ORDER BY t.position, t.created_at DESC`,
-    values,
-  );
+  const rows = await database.collection('tasks')
+    .find({ project_id: { $in: visibleProjectIds } })
+    .sort({ position: 1, created_at: -1 })
+    .toArray();
   res.json({ tasks: rows.map(taskPayload) });
 });
 
@@ -536,16 +579,24 @@ app.post('/api/tasks', requireAuth, async (req, res) => {
   if (!VALID_PRIORITIES.has(priority)) throw new HttpError(400, 'Choose a valid task priority.');
   await assertProjectAssignee(projectId, req.body.assignedTo);
   const id = randomUUID();
-  await getPool().execute(
-    `INSERT INTO tasks (id, project_id, created_by, assigned_to, title, description, status, priority, due_date, position)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [
-      id, projectId, req.user.id, req.body.assignedTo || null, title, req.body.description || null,
-      status, priority, req.body.dueDate || null, Number.isInteger(req.body.position) ? req.body.position : 0,
-    ],
-  );
-  const [rows] = await getPool().execute('SELECT * FROM tasks WHERE id = ?', [id]);
-  res.status(201).json({ task: taskPayload(rows[0]), message: 'Task created successfully.' });
+  const now = new Date();
+  const task = {
+    id,
+    project_id: projectId,
+    created_by: req.user.id,
+    assigned_to: req.body.assignedTo || null,
+    title,
+    description: req.body.description || null,
+    status,
+    priority,
+    due_date: req.body.dueDate || null,
+    position: Number.isInteger(req.body.position) ? req.body.position : 0,
+    completed_at: null,
+    created_at: now,
+    updated_at: now,
+  };
+  await getMongoDatabase().collection('tasks').insertOne(task);
+  res.status(201).json({ task: taskPayload(task), message: 'Task created successfully.' });
 });
 
 app.get('/api/tasks/:id', requireAuth, async (req, res) => {
@@ -573,30 +624,36 @@ app.patch('/api/tasks/:id', requireAuth, async (req, res) => {
       return value;
     }],
   };
-  const updates = [];
-  const values = [];
+  const updates = {};
   for (const [key, [column, validate]] of Object.entries(fields)) {
     if (Object.hasOwn(req.body || {}, key)) {
-      updates.push(`${column} = ?`);
-      values.push(validate(req.body[key]));
+      updates[column] = validate(req.body[key]);
     }
   }
-  if (updates.length === 0) throw new HttpError(400, 'No valid task changes were provided.');
+  if (Object.keys(updates).length === 0) throw new HttpError(400, 'No valid task changes were provided.');
   if (Object.hasOwn(req.body, 'status')) {
-    updates.push("completed_at = IF(? = 'done', COALESCE(completed_at, UTC_TIMESTAMP()), NULL)");
-    values.push(req.body.status);
+    updates.completed_at = req.body.status === 'done' ? (task.completed_at || new Date()) : null;
   }
   if (Object.hasOwn(req.body, 'assignedTo')) {
     await assertProjectAssignee(task.project_id, req.body.assignedTo);
   }
-  await getPool().execute(`UPDATE tasks SET ${updates.join(', ')} WHERE id = ?`, [...values, task.id]);
-  const [rows] = await getPool().execute('SELECT * FROM tasks WHERE id = ?', [task.id]);
-  res.json({ task: taskPayload(rows[0]), message: 'Task updated successfully.' });
+  updates.updated_at = new Date();
+  await getMongoDatabase().collection('tasks').updateOne({ id: task.id }, { $set: updates });
+  res.json({
+    task: taskPayload(await getMongoDatabase().collection('tasks').findOne({ id: task.id })),
+    message: 'Task updated successfully.',
+  });
 });
 
 app.delete('/api/tasks/:id', requireAuth, async (req, res) => {
   const task = await requireTaskMember(req.params.id, req.user.id);
-  await getPool().execute('DELETE FROM tasks WHERE id = ?', [task.id]);
+  const database = getMongoDatabase();
+  await Promise.all([
+    database.collection('subtasks').deleteMany({ task_id: task.id }),
+    database.collection('task_labels').deleteMany({ task_id: task.id }),
+    database.collection('comments').deleteMany({ task_id: task.id }),
+  ]);
+  await database.collection('tasks').deleteOne({ id: task.id });
   res.json({ message: 'Task deleted successfully.' });
 });
 
@@ -604,47 +661,50 @@ app.post('/api/tasks/:id/subtasks', requireAuth, async (req, res) => {
   const task = await requireTaskMember(req.params.id, req.user.id);
   const title = requireText(req.body?.title, 'Subtask title', 200);
   const id = randomUUID();
-  await getPool().execute(
-    'INSERT INTO subtasks (id, task_id, title, position) VALUES (?, ?, ?, ?)',
-    [id, task.id, title, Number.isInteger(req.body.position) ? req.body.position : 0],
-  );
-  const [rows] = await getPool().execute('SELECT * FROM subtasks WHERE id = ?', [id]);
-  res.status(201).json({ subtask: rows[0] });
+  const subtask = {
+    id,
+    task_id: task.id,
+    title,
+    position: Number.isInteger(req.body.position) ? req.body.position : 0,
+    is_completed: false,
+    created_at: new Date(),
+  };
+  await getMongoDatabase().collection('subtasks').insertOne(subtask);
+  res.status(201).json({ subtask });
 });
 
 app.patch('/api/tasks/:id/subtasks/:subtaskId', requireAuth, async (req, res) => {
   const task = await requireTaskMember(req.params.id, req.user.id);
-  const updates = [];
-  const values = [];
+  const updates = {};
   if (Object.hasOwn(req.body || {}, 'title')) {
-    updates.push('title = ?');
-    values.push(requireText(req.body.title, 'Subtask title', 200));
+    updates.title = requireText(req.body.title, 'Subtask title', 200);
   }
   if (Object.hasOwn(req.body || {}, 'isCompleted')) {
     if (typeof req.body.isCompleted !== 'boolean') throw new HttpError(400, 'Subtask completion must be true or false.');
-    updates.push('is_completed = ?');
-    values.push(req.body.isCompleted ? 1 : 0);
+    updates.is_completed = req.body.isCompleted;
   }
-  if (updates.length === 0) throw new HttpError(400, 'No valid subtask changes were provided.');
-  const [result] = await getPool().execute(
-    `UPDATE subtasks SET ${updates.join(', ')} WHERE id = ? AND task_id = ?`,
-    [...values, req.params.subtaskId, task.id],
+  if (Object.keys(updates).length === 0) throw new HttpError(400, 'No valid subtask changes were provided.');
+  const database = getMongoDatabase();
+  const result = await database.collection('subtasks').updateOne(
+    { id: req.params.subtaskId, task_id: task.id },
+    { $set: updates },
   );
-  if (result.affectedRows === 0) throw new HttpError(404, 'Subtask not found.');
-  const [rows] = await getPool().execute(
-    'SELECT * FROM subtasks WHERE id = ? AND task_id = ?',
-    [req.params.subtaskId, task.id],
-  );
-  res.json({ subtask: rows[0] });
+  if (result.matchedCount === 0) throw new HttpError(404, 'Subtask not found.');
+  res.json({
+    subtask: await database.collection('subtasks').findOne({
+      id: req.params.subtaskId,
+      task_id: task.id,
+    }, { projection: { _id: 0 } }),
+  });
 });
 
 app.delete('/api/tasks/:id/subtasks/:subtaskId', requireAuth, async (req, res) => {
   const task = await requireTaskMember(req.params.id, req.user.id);
-  const [result] = await getPool().execute(
-    'DELETE FROM subtasks WHERE id = ? AND task_id = ?',
-    [req.params.subtaskId, task.id],
-  );
-  if (result.affectedRows === 0) throw new HttpError(404, 'Subtask not found.');
+  const result = await getMongoDatabase().collection('subtasks').deleteOne({
+    id: req.params.subtaskId,
+    task_id: task.id,
+  });
+  if (result.deletedCount === 0) throw new HttpError(404, 'Subtask not found.');
   res.json({ message: 'Subtask deleted successfully.' });
 });
 
@@ -652,21 +712,24 @@ app.get('/api/search', requireAuth, async (req, res) => {
   const query = typeof req.query.q === 'string' ? req.query.q.trim() : '';
   if (!query) throw new HttpError(400, 'Search query is required.');
   if (query.length > 120) throw new HttpError(400, 'Search query must be 120 characters or fewer.');
-  const term = `%${query}%`;
-  const [projects] = await getPool().execute(
-    `SELECT p.id, 'Project' AS type, p.name AS title, p.description
-     FROM projects p JOIN workspace_members wm ON wm.workspace_id = p.workspace_id
-     WHERE wm.user_id = ? AND p.archived_at IS NULL AND (p.name LIKE ? OR p.description LIKE ?)
-     LIMIT 20`,
-    [req.user.id, term, term],
-  );
-  const [workspaces] = await getPool().execute(
-    `SELECT w.id, 'Workspace' AS type, w.name AS title, w.description
-     FROM workspaces w JOIN workspace_members wm ON wm.workspace_id = w.id
-     WHERE wm.user_id = ? AND w.archived_at IS NULL AND (w.name LIKE ? OR w.description LIKE ?)
-     LIMIT 20`,
-    [req.user.id, term, term],
-  );
+  const database = getMongoDatabase();
+  const workspaceIds = await database.collection('workspace_members')
+    .distinct('workspace_id', { user_id: req.user.id });
+  const searchPattern = new RegExp(query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+  const [projectDocs, workspaceDocs] = await Promise.all([
+    database.collection('projects').find({
+      workspace_id: { $in: workspaceIds },
+      archived_at: null,
+      $or: [{ name: searchPattern }, { description: searchPattern }],
+    }).limit(20).toArray(),
+    database.collection('workspaces').find({
+      id: { $in: workspaceIds },
+      archived_at: null,
+      $or: [{ name: searchPattern }, { description: searchPattern }],
+    }).limit(20).toArray(),
+  ]);
+  const projects = projectDocs.map(({ id, name, description }) => ({ id, type: 'Project', title: name, description }));
+  const workspaces = workspaceDocs.map(({ id, name, description }) => ({ id, type: 'Workspace', title: name, description }));
   const results = [...projects, ...workspaces].map((row) => ({
     id: row.id,
     type: row.type,

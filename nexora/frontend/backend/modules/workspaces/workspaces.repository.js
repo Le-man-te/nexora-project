@@ -1,44 +1,62 @@
 const { randomUUID } = require('node:crypto');
-const { getPool } = require('../../database/pools');
-const { withTransaction } = require('../../database/transaction');
+const { getMongoDatabase } = require('../../database/mongo');
+const { removeWorkspace } = require('../../database/cleanup');
 
-async function list(userId, pool = getPool()) {
-  const [rows] = await pool.execute(
-    `SELECT w.*, wm.role FROM workspaces w
-     JOIN workspace_members wm ON wm.workspace_id = w.id
-     WHERE wm.user_id = ? AND w.archived_at IS NULL ORDER BY w.created_at`,
-    [userId],
-  );
-  return rows;
+async function list(userId, database = getMongoDatabase()) {
+  const memberships = await database.collection('workspace_members').find({ user_id: userId }).toArray();
+  const roles = new Map(memberships.map(({ workspace_id, role }) => [workspace_id, role]));
+  const rows = await database.collection('workspaces')
+    .find({ id: { $in: [...roles.keys()] }, archived_at: null })
+    .project({ _id: 0 })
+    .sort({ created_at: 1 })
+    .toArray();
+  return rows.map((workspace) => ({ ...workspace, role: roles.get(workspace.id) }));
 }
 
-async function get(userId, workspaceId, pool = getPool()) {
-  const [rows] = await pool.execute(
-    `SELECT w.*, wm.role FROM workspaces w
-     JOIN workspace_members wm ON wm.workspace_id = w.id
-     WHERE wm.user_id = ? AND w.id = ? LIMIT 1`,
-    [userId, workspaceId],
-  );
-  return rows[0] || null;
-}
-
-async function create(userId, values, pool = getPool()) {
-  const id = randomUUID();
-  await withTransaction(pool, async (connection) => {
-    await connection.execute(
-      `INSERT INTO workspaces (id, name, slug, description, team_size, visibility, member_invites, created_by)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      [id, values.name, values.slug, values.description, values.teamSize, values.visibility, values.memberInvites, userId],
-    );
-    await connection.execute(
-      "INSERT INTO workspace_members (id, workspace_id, user_id, role) VALUES (?, ?, ?, 'owner')",
-      [randomUUID(), id, userId],
-    );
+async function get(userId, workspaceId, database = getMongoDatabase()) {
+  const membership = await database.collection('workspace_members').findOne({
+    user_id: userId,
+    workspace_id: workspaceId,
   });
-  return get(userId, id, pool);
+  const workspace = membership && await database.collection('workspaces').findOne(
+    { id: workspaceId },
+    { projection: { _id: 0 } },
+  );
+  return workspace ? { ...workspace, role: membership.role } : null;
 }
 
-async function update(workspaceId, values, pool = getPool()) {
+async function create(userId, values, database = getMongoDatabase()) {
+  const id = randomUUID();
+  const now = new Date();
+  await database.collection('workspaces').insertOne({
+    id,
+    name: values.name,
+    slug: values.slug,
+    description: values.description,
+    team_size: values.teamSize,
+    visibility: values.visibility,
+    member_invites: Boolean(values.memberInvites),
+    created_by: userId,
+    archived_at: null,
+    created_at: now,
+    updated_at: now,
+  });
+  try {
+    await database.collection('workspace_members').insertOne({
+      id: randomUUID(),
+      workspace_id: id,
+      user_id: userId,
+      role: 'owner',
+      created_at: now,
+    });
+  } catch (error) {
+    await database.collection('workspaces').deleteOne({ id });
+    throw error;
+  }
+  return get(userId, id, database);
+}
+
+async function update(workspaceId, values, database = getMongoDatabase()) {
   const columns = {
     name: 'name',
     slug: 'slug',
@@ -47,36 +65,44 @@ async function update(workspaceId, values, pool = getPool()) {
     visibility: 'visibility',
     memberInvites: 'member_invites',
   };
-  const updates = [];
-  const parameters = [];
-  for (const [key, column] of Object.entries(columns)) {
-    if (!Object.hasOwn(values, key)) continue;
-    updates.push(`\`${column}\` = ?`);
-    parameters.push(values[key]);
+  const updates = Object.fromEntries(
+    Object.entries(columns)
+      .filter(([key]) => Object.hasOwn(values, key))
+      .map(([key, column]) => [column, key === 'memberInvites' ? Boolean(values[key]) : values[key]]),
+  );
+  if (Object.keys(updates).length) {
+    updates.updated_at = new Date();
+    await database.collection('workspaces').updateOne({ id: workspaceId }, { $set: updates });
   }
-  await pool.execute(`UPDATE workspaces SET ${updates.join(', ')} WHERE id = ?`, [...parameters, workspaceId]);
 }
 
-async function setArchived(workspaceId, archived, pool = getPool()) {
-  await pool.execute(
-    'UPDATE workspaces SET archived_at = ? WHERE id = ?',
-    [archived ? new Date() : null, workspaceId],
+async function setArchived(workspaceId, archived, database = getMongoDatabase()) {
+  await database.collection('workspaces').updateOne(
+    { id: workspaceId },
+    { $set: { archived_at: archived ? new Date() : null, updated_at: new Date() } },
   );
 }
 
-async function remove(workspaceId, pool = getPool()) {
-  const [result] = await pool.execute('DELETE FROM workspaces WHERE id = ?', [workspaceId]);
-  return result.affectedRows > 0;
+async function remove(workspaceId, database = getMongoDatabase()) {
+  const exists = await database.collection('workspaces').countDocuments({ id: workspaceId });
+  if (!exists) return false;
+  await removeWorkspace(database, workspaceId);
+  return true;
 }
 
-async function members(workspaceId, pool = getPool()) {
-  const [rows] = await pool.execute(
-    `SELECT u.id, u.name, u.email, u.avatar_url, wm.role, wm.created_at
-     FROM workspace_members wm JOIN users u ON u.id = wm.user_id
-     WHERE wm.workspace_id = ? ORDER BY wm.created_at`,
-    [workspaceId],
-  );
-  return rows;
+async function members(workspaceId, database = getMongoDatabase()) {
+  const memberships = await database.collection('workspace_members')
+    .find({ workspace_id: workspaceId })
+    .sort({ created_at: 1 })
+    .toArray();
+  const users = await database.collection('users').find({
+    id: { $in: memberships.map(({ user_id }) => user_id) },
+  }).project({ _id: 0, id: 1, name: 1, email: 1, avatar_url: 1 }).toArray();
+  const byId = new Map(users.map((user) => [user.id, user]));
+  return memberships.flatMap(({ user_id, role, created_at }) => {
+    const user = byId.get(user_id);
+    return user ? [{ ...user, role, created_at }] : [];
+  });
 }
 
 module.exports = { list, get, create, update, setArchived, remove, members };

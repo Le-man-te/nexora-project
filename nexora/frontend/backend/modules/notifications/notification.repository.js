@@ -1,48 +1,43 @@
-const { getPool } = require('../../database/pools');
+const { getMongoDatabase } = require('../../database/mongo');
 
-async function list(userId, { limit = 25, offset = 0 } = {}, pool = getPool()) {
-  const [items] = await pool.execute(
-    `SELECT id, type, title, message, data, read_at, created_at
-     FROM notifications WHERE user_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?`,
-    [userId, limit, offset],
-  );
-  const [count] = await pool.execute(
-    'SELECT COUNT(*) AS total FROM notifications WHERE user_id = ?',
-    [userId],
-  );
-  return { items, total: Number(count[0].total) };
+async function list(userId, { limit = 25, offset = 0 } = {}, database = getMongoDatabase()) {
+  const collection = database.collection('notifications');
+  const [items, total] = await Promise.all([
+    collection.find({ user_id: userId })
+      .project({ _id: 0, id: 1, type: 1, title: 1, message: 1, data: 1, read_at: 1, created_at: 1 })
+      .sort({ created_at: -1 })
+      .skip(offset)
+      .limit(limit)
+      .toArray(),
+    collection.countDocuments({ user_id: userId }),
+  ]);
+  return { items, total };
 }
 
-async function unreadCount(userId, pool = getPool()) {
-  const [rows] = await pool.execute(
-    'SELECT COUNT(*) AS total FROM notifications WHERE user_id = ? AND read_at IS NULL',
-    [userId],
-  );
-  return Number(rows[0].total);
+async function unreadCount(userId, database = getMongoDatabase()) {
+  return database.collection('notifications').countDocuments({ user_id: userId, read_at: null });
 }
 
-async function markRead(userId, id, pool = getPool()) {
-  const [result] = await pool.execute(
-    'UPDATE notifications SET read_at = COALESCE(read_at, UTC_TIMESTAMP()) WHERE id = ? AND user_id = ?',
-    [id, userId],
+async function markRead(userId, id, database = getMongoDatabase()) {
+  const result = await database.collection('notifications').updateOne(
+    { id, user_id: userId, read_at: null },
+    { $set: { read_at: new Date() } },
   );
-  return result.affectedRows > 0;
+  if (result.matchedCount) return true;
+  return database.collection('notifications').countDocuments({ id, user_id: userId }) > 0;
 }
 
-async function markAllRead(userId, pool = getPool()) {
-  const [result] = await pool.execute(
-    'UPDATE notifications SET read_at = UTC_TIMESTAMP() WHERE user_id = ? AND read_at IS NULL',
-    [userId],
+async function markAllRead(userId, database = getMongoDatabase()) {
+  const result = await database.collection('notifications').updateMany(
+    { user_id: userId, read_at: null },
+    { $set: { read_at: new Date() } },
   );
-  return result.affectedRows;
+  return result.modifiedCount;
 }
 
-async function remove(userId, id, pool = getPool()) {
-  const [result] = await pool.execute(
-    'DELETE FROM notifications WHERE id = ? AND user_id = ?',
-    [id, userId],
-  );
-  return result.affectedRows > 0;
+async function remove(userId, id, database = getMongoDatabase()) {
+  const result = await database.collection('notifications').deleteOne({ id, user_id: userId });
+  return result.deletedCount > 0;
 }
 
 module.exports = { list, unreadCount, markRead, markAllRead, remove };

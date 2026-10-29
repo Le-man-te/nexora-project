@@ -78,9 +78,9 @@ function AuthMessage({ children, variant = 'info' }) {
   )
 }
 
-function AuthSubmit({ children }) {
+function AuthSubmit({ children, disabled = false }) {
   return (
-    <button className="auth-submit" type="submit">
+    <button className="auth-submit" disabled={disabled} type="submit">
       {children}
       <span aria-hidden="true">→</span>
     </button>

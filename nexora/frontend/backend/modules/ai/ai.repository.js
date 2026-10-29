@@ -1,70 +1,77 @@
 const { randomUUID } = require('node:crypto');
-const { getPool } = require('../../database/pools');
-const { withTransaction } = require('../../database/transaction');
+const { getMongoDatabase } = require('../../database/mongo');
 
-async function listConversations(userId, pool = getPool()) {
-  const [rows] = await pool.execute(
-    `SELECT id, workspace_id, title, created_at, updated_at
-     FROM ai_conversations WHERE user_id = ? ORDER BY updated_at DESC LIMIT 100`,
-    [userId],
-  );
-  return rows;
+async function listConversations(userId, database = getMongoDatabase()) {
+  return database.collection('ai_conversations')
+    .find({ user_id: userId })
+    .project({ _id: 0, id: 1, workspace_id: 1, title: 1, created_at: 1, updated_at: 1 })
+    .sort({ updated_at: -1 })
+    .limit(100)
+    .toArray();
 }
 
-async function getConversation(userId, id, pool = getPool()) {
-  const [rows] = await pool.execute(
-    `SELECT id, workspace_id, title, created_at, updated_at
-     FROM ai_conversations WHERE id = ? AND user_id = ? LIMIT 1`,
-    [id, userId],
-  );
-  return rows[0] || null;
-}
-
-async function createConversation(userId, id, workspaceId, title, pool = getPool()) {
-  await pool.execute(
-    `INSERT INTO ai_conversations (id, user_id, workspace_id, title)
-     VALUES (?, ?, ?, ?)`,
-    [id, userId, workspaceId, title.slice(0, 200)],
+async function getConversation(userId, id, database = getMongoDatabase()) {
+  return database.collection('ai_conversations').findOne(
+    { id, user_id: userId },
+    { projection: { _id: 0, id: 1, workspace_id: 1, title: 1, created_at: 1, updated_at: 1 } },
   );
 }
 
-async function addExchange(userId, conversationId, userText, assistantText, pool = getPool()) {
-  await withTransaction(pool, async (connection) => {
-    await connection.execute(
-      `INSERT INTO ai_messages (id, conversation_id, role, content, provider)
-       SELECT ?, c.id, 'user', ?, NULL FROM ai_conversations c
-       WHERE c.id = ? AND c.user_id = ?`,
-      [randomUUID(), userText, conversationId, userId],
-    );
-    await connection.execute(
-      `INSERT INTO ai_messages (id, conversation_id, role, content, provider)
-       SELECT ?, c.id, 'assistant', ?, ? FROM ai_conversations c
-       WHERE c.id = ? AND c.user_id = ?`,
-      [randomUUID(), assistantText, process.env.AI_PROVIDER || 'openai-compatible', conversationId, userId],
-    );
-    await connection.execute(
-      'UPDATE ai_conversations SET updated_at = UTC_TIMESTAMP() WHERE id = ? AND user_id = ?',
-      [conversationId, userId],
-    );
+async function createConversation(userId, id, workspaceId, title, database = getMongoDatabase()) {
+  const now = new Date();
+  await database.collection('ai_conversations').insertOne({
+    id,
+    user_id: userId,
+    workspace_id: workspaceId || null,
+    title: title.slice(0, 200),
+    created_at: now,
+    updated_at: now,
   });
 }
 
-async function getMessages(userId, conversationId, pool = getPool()) {
-  const [rows] = await pool.execute(
-    `SELECT m.id, m.role, m.content, m.created_at
-     FROM ai_messages m JOIN ai_conversations c ON c.id = m.conversation_id
-     WHERE c.id = ? AND c.user_id = ? ORDER BY m.created_at`,
-    [conversationId, userId],
+async function addExchange(userId, conversationId, userText, assistantText, database = getMongoDatabase()) {
+  const conversation = await database.collection('ai_conversations').findOne({ id: conversationId, user_id: userId });
+  if (!conversation) return false;
+  const now = new Date();
+  await database.collection('ai_messages').insertMany([
+    {
+      id: randomUUID(),
+      conversation_id: conversationId,
+      role: 'user',
+      content: userText,
+      provider: null,
+      created_at: now,
+    },
+    {
+      id: randomUUID(),
+      conversation_id: conversationId,
+      role: 'assistant',
+      content: assistantText,
+      provider: process.env.AI_PROVIDER || 'openai-compatible',
+      created_at: now,
+    },
+  ]);
+  await database.collection('ai_conversations').updateOne(
+    { id: conversationId, user_id: userId },
+    { $set: { updated_at: now } },
   );
-  return rows;
+  return true;
 }
 
-async function deleteConversation(userId, id, pool = getPool()) {
-  const [result] = await pool.execute(
-    'DELETE FROM ai_conversations WHERE id = ? AND user_id = ?',
-    [id, userId],
-  );
-  return result.affectedRows > 0;
+async function getMessages(userId, conversationId, database = getMongoDatabase()) {
+  const conversation = await getConversation(userId, conversationId, database);
+  if (!conversation) return [];
+  return database.collection('ai_messages')
+    .find({ conversation_id: conversationId })
+    .project({ _id: 0, id: 1, role: 1, content: 1, created_at: 1 })
+    .sort({ created_at: 1 })
+    .toArray();
+}
+
+async function deleteConversation(userId, id, database = getMongoDatabase()) {
+  const result = await database.collection('ai_conversations').deleteOne({ id, user_id: userId });
+  if (result.deletedCount) await database.collection('ai_messages').deleteMany({ conversation_id: id });
+  return result.deletedCount > 0;
 }
 
 module.exports = { listConversations, getConversation, createConversation, addExchange, getMessages, deleteConversation };

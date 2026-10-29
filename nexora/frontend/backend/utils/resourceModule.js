@@ -1,94 +1,95 @@
 const { randomUUID } = require('node:crypto');
-const { getPool } = require('../database/pools');
+const { getMongoDatabase } = require('../database/mongo');
 const ApiError = require('./ApiErroir');
 const { parsePagination } = require('./pagination');
 
-function assertIdentifier(value) {
-  if (typeof value !== 'string' || !/^[a-z][a-z0-9_]*$/i.test(value)) {
-    throw new TypeError(`Unsafe SQL identifier: ${value}`);
+function createResourceRepository(config, databaseProvider = getMongoDatabase) {
+  if (!/^[a-z][a-z0-9_]*$/i.test(config.table)) {
+    throw new TypeError(`Unsafe MongoDB collection name: ${config.table}`);
   }
-}
-
-function createResourceRepository(config, poolProvider = getPool) {
-  assertIdentifier(config.table);
-  assertIdentifier(config.idColumn || 'id');
-  for (const field of Object.values(config.fields)) assertIdentifier(field.column);
-
-  const table = `\`${config.table}\``;
-  const idColumn = `\`${config.idColumn || 'id'}\``;
-  const scopeSql = config.scopeSql;
-  if (typeof scopeSql !== 'string' || !scopeSql.includes('?')) {
-    throw new TypeError('Resource scopeSql must be a static SQL predicate containing a user placeholder.');
+  if (typeof config.scopeQuery !== 'function') {
+    throw new TypeError('Resource scopeQuery must be a function that returns a MongoDB filter.');
   }
-  const scopeValues = (userId) => [userId];
+  for (const field of Object.values(config.fields)) {
+    if (!/^[a-z][a-z0-9_]*$/i.test(field.column)) {
+      throw new TypeError(`Unsafe MongoDB field name: ${field.column}`);
+    }
+  }
 
   async function list(userId, query = {}) {
     const { limit, offset } = parsePagination(query);
-    const pool = poolProvider();
-    const orderBy = config.orderBy || 'created_at';
-    assertIdentifier(orderBy);
-    const [rows] = await pool.execute(
-      `SELECT r.* FROM ${table} r WHERE (${scopeSql}) ORDER BY r.\`${orderBy}\` DESC LIMIT ? OFFSET ?`,
-      [...scopeValues(userId), limit, offset],
-    );
-    const [countRows] = await pool.execute(
-      `SELECT COUNT(*) AS total FROM ${table} r WHERE (${scopeSql})`,
-      scopeValues(userId),
-    );
-    return { items: rows, total: Number(countRows[0].total) };
+    const database = databaseProvider();
+    const filter = await config.scopeQuery(userId, database);
+    const [items, total] = await Promise.all([
+      database.collection(config.table)
+        .find(filter)
+        .project({ _id: 0 })
+        .sort({ [config.orderBy || 'created_at']: -1 })
+        .skip(offset)
+        .limit(limit)
+        .toArray(),
+      database.collection(config.table).countDocuments(filter),
+    ]);
+    return { items, total };
   }
 
   async function getById(userId, id) {
-    const [rows] = await poolProvider().execute(
-      `SELECT r.* FROM ${table} r WHERE r.${idColumn} = ? AND (${scopeSql}) LIMIT 1`,
-      [id, ...scopeValues(userId)],
+    const database = databaseProvider();
+    const filter = await config.scopeQuery(userId, database);
+    return database.collection(config.table).findOne(
+      { ...filter, [config.idColumn || 'id']: id },
+      { projection: { _id: 0 } },
     );
-    return rows[0] || null;
   }
 
   async function create(userId, values) {
-    if (config.authorizeCreate) await config.authorizeCreate(userId, values, poolProvider());
+    const database = databaseProvider();
+    if (config.authorizeCreate) await config.authorizeCreate(userId, values, database);
     const id = randomUUID();
-    const record = { [config.idColumn || 'id']: id };
+    const now = new Date();
+    const record = { [config.idColumn || 'id']: id, created_at: now, updated_at: now };
     if (config.createdByColumn) record[config.createdByColumn] = userId;
     if (config.ownerColumn) record[config.ownerColumn] = userId;
     for (const key of config.createFields) {
       const column = config.fields[key].column;
       if (Object.hasOwn(values, key)) record[column] = values[key];
     }
-    const columns = Object.keys(record);
-    for (const column of columns) assertIdentifier(column);
-    const placeholders = columns.map(() => '?').join(', ');
-    await poolProvider().execute(
-      `INSERT INTO ${table} (${columns.map((column) => `\`${column}\``).join(', ')}) VALUES (${placeholders})`,
-      columns.map((column) => record[column]),
-    );
+    if (config.fields) {
+      for (const [key, spec] of Object.entries(config.fields)) {
+        if (spec.type === 'boolean' && Object.hasOwn(record, spec.column)) {
+          record[spec.column] = Boolean(record[spec.column]);
+        }
+      }
+    }
+    await database.collection(config.table).insertOne(record);
     return getById(userId, id);
   }
 
   async function update(userId, id, values) {
-    const updates = [];
-    const parameters = [];
+    const updates = {};
     for (const key of config.updateFields) {
       if (!Object.hasOwn(values, key)) continue;
       const column = config.fields[key].column;
-      updates.push(`\`${column}\` = ?`);
-      parameters.push(values[key]);
+      updates[column] = config.fields[key].type === 'boolean' ? Boolean(values[key]) : values[key];
     }
-    if (updates.length === 0) throw ApiError.badRequest('No valid changes were provided.');
-    const [result] = await poolProvider().execute(
-      `UPDATE ${table} r SET ${updates.join(', ')} WHERE r.${idColumn} = ? AND (${scopeSql})`,
-      [...parameters, id, ...scopeValues(userId)],
+    if (Object.keys(updates).length === 0) throw ApiError.badRequest('No valid changes were provided.');
+    updates.updated_at = new Date();
+    const database = databaseProvider();
+    const filter = await config.scopeQuery(userId, database);
+    const result = await database.collection(config.table).updateOne(
+      { ...filter, [config.idColumn || 'id']: id },
+      { $set: updates },
     );
-    return result.affectedRows ? getById(userId, id) : null;
+    return result.matchedCount ? getById(userId, id) : null;
   }
 
   async function remove(userId, id) {
-    const [result] = await poolProvider().execute(
-      `DELETE r FROM ${table} r WHERE r.${idColumn} = ? AND (${scopeSql})`,
-      [id, ...scopeValues(userId)],
+    const database = databaseProvider();
+    const filter = await config.scopeQuery(userId, database);
+    const result = await database.collection(config.table).deleteOne(
+      { ...filter, [config.idColumn || 'id']: id },
     );
-    return result.affectedRows > 0;
+    return result.deletedCount > 0;
   }
 
   return Object.freeze({ ...config, list, getById, create, update, remove });
@@ -156,6 +157,7 @@ function createResourceService(repository, config) {
   }
 
   return Object.freeze({
+    ...config,
     list: (userId, query) => repository.list(userId, query),
     get,
     validate,

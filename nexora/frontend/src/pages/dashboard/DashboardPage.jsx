@@ -1,6 +1,7 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import '../../App.css'
+import { getCurrentUser } from '../../features/auth/auth.api.js'
 import DashboardLayout from '../../layouts/DashboardLayout.jsx'
 import Icon from '../../layouts/Icon.jsx'
 import MobileNavigation from '../../layouts/MobileNavigation.jsx'
@@ -50,7 +51,19 @@ function DashboardPage() {
   const [tasks, setTasks] = useState(startingTasks)
   const [taskFilter, setTaskFilter] = useState('My tasks')
   const [notice, setNotice] = useState('')
+  const [user, setUser] = useState(null)
+  const [profileError, setProfileError] = useState('')
   const [today] = useState(() => new Date())
+
+  useEffect(() => {
+    const controller = new AbortController()
+    getCurrentUser({ signal: controller.signal })
+      .then(({ user: currentUser }) => setUser(currentUser))
+      .catch((error) => {
+        if (error.name !== 'AbortError') setProfileError(error.message)
+      })
+    return () => controller.abort()
+  }, [])
 
   const dateLabel = useMemo(() => new Intl.DateTimeFormat('en', {
     weekday: 'long',
@@ -108,7 +121,11 @@ function DashboardPage() {
           onNavigate={navigateToSection}
           onUpgrade={() => setNotice('Workspace plans are coming soon.')}
           projects={projects}
-          user={{ name: 'Alex Morgan', email: 'alex@studionorth.com', initials: 'AM' }}
+          user={{
+            name: user?.name || 'Account',
+            email: user?.email || '',
+            initials: user?.name?.trim().split(/\s+/).slice(0, 2).map((part) => part[0]).join('').toUpperCase() || 'A',
+          }}
         />
       }
       navbar={
@@ -135,10 +152,16 @@ function DashboardPage() {
         <WelcomePanel
           dateLabel={dateLabel}
           greeting={greeting}
-          name="LETA"
+          name={user?.name?.trim() || 'there'}
           onStartProject={() => navigate('/projects/new')}
           onViewDay={() => navigate('/calendar')}
         />
+
+        {profileError && (
+          <div className="dashboard-notice" role="status">
+            <span>{profileError}</span>
+          </div>
+        )}
 
         {notice && (
           <div className="dashboard-notice" role="status">

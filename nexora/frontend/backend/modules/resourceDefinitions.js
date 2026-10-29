@@ -1,24 +1,25 @@
-const { getPool } = require('../database/pools');
+const { getMongoDatabase } = require('../database/mongo');
 const ApiError = require('../utils/ApiErroir');
 
-const workspaceMember = (alias = 'r') => (
-  `EXISTS (SELECT 1 FROM workspace_members wm WHERE wm.workspace_id = ${alias}.workspace_id AND wm.user_id = ?)`
-);
+async function memberWorkspaceIds(userId, database = getMongoDatabase()) {
+  return database.collection('workspace_members').distinct('workspace_id', { user_id: userId });
+}
 
-async function authorizeWorkspace(userId, workspaceId, pool = getPool(), minimumRole = 'member') {
-  const [rows] = await pool.execute(
-    `SELECT role FROM workspace_members WHERE workspace_id = ? AND user_id = ? LIMIT 1`,
-    [workspaceId, userId],
-  );
-  if (rows.length === 0) throw ApiError.notFound('Workspace not found.');
-  if (minimumRole === 'admin' && !['owner', 'admin'].includes(rows[0].role)) {
+async function authorizeWorkspace(userId, workspaceId, database = getMongoDatabase(), minimumRole = 'member') {
+  const membership = await database.collection('workspace_members').findOne({
+    workspace_id: workspaceId,
+    user_id: userId,
+  });
+  if (!membership) throw ApiError.notFound('Workspace not found.');
+  if (minimumRole === 'admin' && !['owner', 'admin'].includes(membership.role)) {
     throw ApiError.forbidden('Workspace administrator permission is required.');
   }
 }
 
 const definitions = {
   notes: {
-    singular: 'note', plural: 'notes', table: 'notes', scopeSql: workspaceMember(),
+    singular: 'note', plural: 'notes', table: 'notes',
+    scopeQuery: async (userId, database) => ({ workspace_id: { $in: await memberWorkspaceIds(userId, database) } }),
     fields: {
       workspaceId: { column: 'workspace_id', type: 'string', maxLength: 36, label: 'Workspace' },
       title: { column: 'title', type: 'string', maxLength: 200, label: 'Title' },
@@ -29,11 +30,12 @@ const definitions = {
     updateFields: ['title', 'content', 'isPinned'],
     requiredFields: ['workspaceId', 'title'],
     createdByColumn: 'author_id',
-    authorizeCreate: (userId, values, pool) => authorizeWorkspace(userId, values.workspaceId, pool),
+    authorizeCreate: (userId, values, database) => authorizeWorkspace(userId, values.workspaceId, database),
     orderBy: 'updated_at',
   },
   documents: {
-    singular: 'document', plural: 'documents', table: 'documents', scopeSql: workspaceMember(),
+    singular: 'document', plural: 'documents', table: 'documents',
+    scopeQuery: async (userId, database) => ({ workspace_id: { $in: await memberWorkspaceIds(userId, database) } }),
     fields: {
       workspaceId: { column: 'workspace_id', type: 'string', maxLength: 36, label: 'Workspace' },
       title: { column: 'title', type: 'string', maxLength: 200, label: 'Title' },
@@ -43,11 +45,12 @@ const definitions = {
     updateFields: ['title', 'content'],
     requiredFields: ['workspaceId', 'title'],
     createdByColumn: 'created_by',
-    authorizeCreate: (userId, values, pool) => authorizeWorkspace(userId, values.workspaceId, pool),
+    authorizeCreate: (userId, values, database) => authorizeWorkspace(userId, values.workspaceId, database),
     orderBy: 'updated_at',
   },
   projects: {
-    singular: 'project', plural: 'projects', table: 'projects', scopeSql: workspaceMember(),
+    singular: 'project', plural: 'projects', table: 'projects',
+    scopeQuery: async (userId, database) => ({ workspace_id: { $in: await memberWorkspaceIds(userId, database) } }),
     fields: {
       workspaceId: { column: 'workspace_id', type: 'string', maxLength: 36, label: 'Workspace' },
       name: { column: 'name', type: 'string', maxLength: 160, label: 'Project name' },
@@ -61,12 +64,18 @@ const definitions = {
     updateFields: ['name', 'description', 'status', 'priority', 'startDate', 'dueDate'],
     requiredFields: ['workspaceId', 'name'],
     createdByColumn: 'created_by',
-    authorizeCreate: (userId, values, pool) => authorizeWorkspace(userId, values.workspaceId, pool),
+    authorizeCreate: (userId, values, database) => authorizeWorkspace(userId, values.workspaceId, database),
     orderBy: 'updated_at',
   },
   tasks: {
     singular: 'task', plural: 'tasks', table: 'tasks',
-    scopeSql: 'EXISTS (SELECT 1 FROM projects p JOIN workspace_members wm ON wm.workspace_id = p.workspace_id WHERE p.id = r.project_id AND wm.user_id = ?)',
+    scopeQuery: async (userId, database) => {
+      const workspaceIds = await memberWorkspaceIds(userId, database);
+      const projectIds = await database.collection('projects').distinct('id', {
+        workspace_id: { $in: workspaceIds },
+      });
+      return { project_id: { $in: projectIds } };
+    },
     fields: {
       projectId: { column: 'project_id', type: 'string', maxLength: 36, label: 'Project' },
       title: { column: 'title', type: 'string', maxLength: 200, label: 'Task title' },
@@ -81,26 +90,23 @@ const definitions = {
     updateFields: ['title', 'description', 'status', 'priority', 'assignedTo', 'dueDate', 'position'],
     requiredFields: ['projectId', 'title'],
     createdByColumn: 'created_by',
-    authorizeCreate: async (userId, values, pool) => {
-      const [rows] = await pool.execute(
-        `SELECT p.id FROM projects p JOIN workspace_members wm ON wm.workspace_id = p.workspace_id
-         WHERE p.id = ? AND wm.user_id = ? LIMIT 1`,
-        [values.projectId, userId],
-      );
-      if (rows.length === 0) throw ApiError.notFound('Project not found.');
+    authorizeCreate: async (userId, values, database) => {
+      const project = await database.collection('projects').findOne({ id: values.projectId });
+      if (!project) throw ApiError.notFound('Project not found.');
+      await authorizeWorkspace(userId, project.workspace_id, database);
       if (values.assignedTo) {
-        const [assignees] = await pool.execute(
-          `SELECT 1 FROM projects p JOIN workspace_members wm ON wm.workspace_id = p.workspace_id
-           WHERE p.id = ? AND wm.user_id = ? LIMIT 1`,
-          [values.projectId, values.assignedTo],
-        );
-        if (assignees.length === 0) throw ApiError.badRequest('Assignee must be a member of the project workspace.');
+        const membership = await database.collection('workspace_members').findOne({
+          workspace_id: project.workspace_id,
+          user_id: values.assignedTo,
+        });
+        if (!membership) throw ApiError.badRequest('Assignee must be a member of the project workspace.');
       }
     },
     orderBy: 'updated_at',
   },
   notifications: {
-    singular: 'notification', plural: 'notifications', table: 'notifications', scopeSql: 'r.user_id = ?',
+    singular: 'notification', plural: 'notifications', table: 'notifications',
+    scopeQuery: (userId) => ({ user_id: userId }),
     fields: {
       type: { column: 'type', type: 'string', maxLength: 60, label: 'Type' },
       title: { column: 'title', type: 'string', maxLength: 200, label: 'Title' },
@@ -113,7 +119,8 @@ const definitions = {
     orderBy: 'created_at',
   },
   users: {
-    singular: 'user', plural: 'users', table: 'users', scopeSql: 'r.id = ?',
+    singular: 'user', plural: 'users', table: 'users',
+    scopeQuery: (userId) => ({ id: userId }),
     fields: {
       name: { column: 'name', type: 'string', maxLength: 120, label: 'Name' },
       avatarUrl: { column: 'avatar_url', type: 'string', maxLength: 2048, nullable: true, url: true },
@@ -124,7 +131,8 @@ const definitions = {
     orderBy: 'updated_at',
   },
   comments: {
-    singular: 'comment', plural: 'comments', table: 'comments', scopeSql: 'r.author_id = ?',
+    singular: 'comment', plural: 'comments', table: 'comments',
+    scopeQuery: (userId) => ({ author_id: userId }),
     fields: {
       taskId: { column: 'task_id', type: 'string', maxLength: 36, nullable: true },
       projectId: { column: 'project_id', type: 'string', maxLength: 36, nullable: true },
@@ -135,26 +143,28 @@ const definitions = {
     updateFields: ['content'],
     requiredFields: ['content'],
     createdByColumn: 'author_id',
-    authorizeCreate: async (userId, values, pool) => {
+    authorizeCreate: async (userId, values, database) => {
       const targets = ['taskId', 'projectId', 'documentId'].filter((key) => values[key]);
       if (targets.length !== 1) throw ApiError.badRequest('A comment must belong to exactly one task, project, or document.');
-      const queries = {
-        taskId: `SELECT t.id FROM tasks t JOIN projects p ON p.id = t.project_id
-                 JOIN workspace_members wm ON wm.workspace_id = p.workspace_id
-                 WHERE t.id = ? AND wm.user_id = ? LIMIT 1`,
-        projectId: `SELECT p.id FROM projects p JOIN workspace_members wm ON wm.workspace_id = p.workspace_id
-                    WHERE p.id = ? AND wm.user_id = ? LIMIT 1`,
-        documentId: `SELECT d.id FROM documents d JOIN workspace_members wm ON wm.workspace_id = d.workspace_id
-                     WHERE d.id = ? AND wm.user_id = ? LIMIT 1`,
-      };
-      const [rows] = await pool.execute(queries[targets[0]], [values[targets[0]], userId]);
-      if (rows.length === 0) throw ApiError.notFound('Comment target not found.');
+      const target = targets[0];
+      let workspaceId;
+      if (target === 'taskId') {
+        const task = await database.collection('tasks').findOne({ id: values[target] });
+        const project = task && await database.collection('projects').findOne({ id: task.project_id });
+        workspaceId = project?.workspace_id;
+      } else {
+        const collection = target === 'projectId' ? 'projects' : 'documents';
+        const entity = await database.collection(collection).findOne({ id: values[target] });
+        workspaceId = entity?.workspace_id;
+      }
+      if (!workspaceId) throw ApiError.notFound('Comment target not found.');
+      await authorizeWorkspace(userId, workspaceId, database);
     },
     orderBy: 'created_at',
   },
   invitations: {
     singular: 'invitation', plural: 'invitations', table: 'workspace_invitations',
-    scopeSql: workspaceMember(),
+    scopeQuery: async (userId, database) => ({ workspace_id: { $in: await memberWorkspaceIds(userId, database) } }),
     fields: {
       workspaceId: { column: 'workspace_id', type: 'string', maxLength: 36, label: 'Workspace' },
       email: { column: 'email', type: 'string', maxLength: 255, label: 'Email' },
@@ -167,12 +177,12 @@ const definitions = {
     updateFields: ['role', 'status'],
     requiredFields: ['workspaceId', 'email', 'role', 'tokenHash', 'expiresAt'],
     createdByColumn: 'invited_by',
-    authorizeCreate: (userId, values, pool) => authorizeWorkspace(userId, values.workspaceId, pool, 'admin'),
+    authorizeCreate: (userId, values, database) => authorizeWorkspace(userId, values.workspaceId, database, 'admin'),
     orderBy: 'created_at',
   },
   activity: {
     singular: 'activity', plural: 'activity', table: 'activity_logs',
-    scopeSql: workspaceMember(),
+    scopeQuery: async (userId, database) => ({ workspace_id: { $in: await memberWorkspaceIds(userId, database) } }),
     fields: {
       workspaceId: { column: 'workspace_id', type: 'string', maxLength: 36 },
       action: { column: 'action', type: 'string', maxLength: 80 },
@@ -183,7 +193,7 @@ const definitions = {
     updateFields: [],
     requiredFields: ['workspaceId', 'action', 'entityType'],
     createdByColumn: 'actor_id',
-    authorizeCreate: (userId, values, pool) => authorizeWorkspace(userId, values.workspaceId, pool),
+    authorizeCreate: (userId, values, database) => authorizeWorkspace(userId, values.workspaceId, database),
     orderBy: 'created_at',
   },
 };

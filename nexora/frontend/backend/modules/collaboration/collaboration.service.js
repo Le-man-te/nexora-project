@@ -1,6 +1,5 @@
 const { randomUUID, createHash } = require('node:crypto');
-const { getPool } = require('../../database/pools');
-const { withTransaction } = require('../../database/transaction');
+const { getMongoDatabase } = require('../../database/mongo');
 const { sendEmail } = require('../../services/emailSerrvice');
 const ApiError = require('../../utils/ApiErroir');
 const { parsePagination } = require('../../utils/pagination');
@@ -8,23 +7,23 @@ const { parsePagination } = require('../../utils/pagination');
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const hashToken = (token) => createHash('sha256').update(token).digest('hex');
 
-async function assertAdmin(userId, workspaceId, pool = getPool()) {
-  const [rows] = await pool.execute(
-    'SELECT role FROM workspace_members WHERE workspace_id = ? AND user_id = ? LIMIT 1',
-    [workspaceId, userId],
-  );
-  if (!rows.length) throw ApiError.notFound('Workspace not found.');
-  if (!['owner', 'admin'].includes(rows[0].role)) throw ApiError.forbidden('Workspace administrator permission is required.');
+async function assertAdmin(userId, workspaceId, database = getMongoDatabase()) {
+  const membership = await database.collection('workspace_members').findOne({
+    workspace_id: workspaceId,
+    user_id: userId,
+  });
+  if (!membership) throw ApiError.notFound('Workspace not found.');
+  if (!['owner', 'admin'].includes(membership.role)) throw ApiError.forbidden('Workspace administrator permission is required.');
 }
 
-async function getInvitation(userId, invitationId, pool = getPool()) {
-  const [rows] = await pool.execute(
-    `SELECT i.* FROM workspace_invitations i
-     JOIN workspace_members wm ON wm.workspace_id = i.workspace_id
-     WHERE i.id = ? AND wm.user_id = ? LIMIT 1`,
-    [invitationId, userId],
-  );
-  return rows[0] || null;
+async function getInvitation(userId, invitationId, database = getMongoDatabase()) {
+  const invitation = await database.collection('workspace_invitations').findOne({ id: invitationId });
+  if (!invitation) return null;
+  const membership = await database.collection('workspace_members').findOne({
+    workspace_id: invitation.workspace_id,
+    user_id: userId,
+  });
+  return membership ? invitation : null;
 }
 
 async function sendInvite(email, invitationId) {
@@ -48,13 +47,13 @@ async function listInvitations(userId, query = {}) {
   if (!workspaceId) throw ApiError.badRequest('Workspace id is required.');
   await assertAdmin(userId, workspaceId);
   const { limit, offset } = parsePagination(query);
-  const [rows] = await getPool().execute(
-    `SELECT id, workspace_id, email, role, status, expires_at, created_at
-     FROM workspace_invitations WHERE workspace_id = ?
-     ORDER BY created_at DESC LIMIT ? OFFSET ?`,
-    [workspaceId, limit, offset],
-  );
-  return rows;
+  return getMongoDatabase().collection('workspace_invitations')
+    .find({ workspace_id: workspaceId })
+    .project({ _id: 0, id: 1, workspace_id: 1, email: 1, role: 1, status: 1, expires_at: 1, created_at: 1 })
+    .sort({ created_at: -1 })
+    .skip(offset)
+    .limit(limit)
+    .toArray();
 }
 
 async function createInvitation(userId, input) {
@@ -71,18 +70,26 @@ async function createInvitation(userId, input) {
 
   const id = randomUUID();
   const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
-  await getPool().execute(
-    `INSERT INTO workspace_invitations
-       (id, workspace_id, invited_by, email, role, token_hash, expires_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    [id, workspaceId, userId, email, role, hashToken(id), expiresAt],
-  );
+  const now = new Date();
+  await getMongoDatabase().collection('workspace_invitations').insertOne({
+    id,
+    workspace_id: workspaceId,
+    invited_by: userId,
+    email,
+    role,
+    token_hash: hashToken(id),
+    status: 'pending',
+    expires_at: expiresAt,
+    accepted_at: null,
+    created_at: now,
+    updated_at: now,
+  });
   try {
     await sendInvite(email, id);
   } catch (error) {
-    await getPool().execute(
-      "UPDATE workspace_invitations SET status = 'revoked' WHERE id = ?",
-      [id],
+    await getMongoDatabase().collection('workspace_invitations').updateOne(
+      { id },
+      { $set: { status: 'revoked', updated_at: new Date() } },
     );
     throw error;
   }
@@ -95,14 +102,17 @@ async function resendInvitation(userId, id) {
   await assertAdmin(userId, invitation.workspace_id);
   if (invitation.status !== 'pending') throw ApiError.badRequest('Only pending invitations can be resent.');
   const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
-  await getPool().execute(
-    'UPDATE workspace_invitations SET expires_at = ? WHERE id = ? AND status = ?',
-    [expiresAt, id, 'pending'],
+  await getMongoDatabase().collection('workspace_invitations').updateOne(
+    { id, status: 'pending' },
+    { $set: { expires_at: expiresAt, updated_at: new Date() } },
   );
   try {
     await sendInvite(invitation.email, id);
   } catch (error) {
-    await getPool().execute("UPDATE workspace_invitations SET status = 'revoked' WHERE id = ?", [id]);
+    await getMongoDatabase().collection('workspace_invitations').updateOne(
+      { id },
+      { $set: { status: 'revoked', updated_at: new Date() } },
+    );
     throw error;
   }
 }
@@ -111,46 +121,51 @@ async function revokeInvitation(userId, id) {
   const invitation = await getInvitation(userId, id);
   if (!invitation) throw ApiError.notFound('Invitation not found.');
   await assertAdmin(userId, invitation.workspace_id);
-  const [result] = await getPool().execute(
-    "UPDATE workspace_invitations SET status = 'revoked' WHERE id = ? AND status = 'pending'",
-    [id],
+  const result = await getMongoDatabase().collection('workspace_invitations').updateOne(
+    { id, status: 'pending' },
+    { $set: { status: 'revoked', updated_at: new Date() } },
   );
-  if (!result.affectedRows) throw ApiError.badRequest('Only pending invitations can be revoked.');
+  if (!result.matchedCount) throw ApiError.badRequest('Only pending invitations can be revoked.');
 }
 
 async function respondToInvitation(user, id, accept) {
-  return withTransaction(getPool(), async (connection) => {
-    const [rows] = await connection.execute(
-      `SELECT * FROM workspace_invitations
-       WHERE id = ? AND token_hash = ? AND email = ? AND status = 'pending' AND expires_at > UTC_TIMESTAMP()
-       FOR UPDATE`,
-      [id, hashToken(id), user.email],
+  const database = getMongoDatabase();
+  const now = new Date();
+  const invitation = await database.collection('workspace_invitations').findOneAndUpdate(
+    {
+      id,
+      token_hash: hashToken(id),
+      email: user.email,
+      status: 'pending',
+      expires_at: { $gt: now },
+    },
+    { $set: { status: accept ? 'accepted' : 'revoked', accepted_at: accept ? now : null, updated_at: now } },
+    { returnDocument: 'before' },
+  );
+  if (!invitation) throw ApiError.notFound('Invitation not found or expired.');
+  if (!accept) return;
+
+  try {
+    await database.collection('workspace_members').updateOne(
+      { workspace_id: invitation.workspace_id, user_id: user.id },
+      {
+        $setOnInsert: {
+          id: randomUUID(),
+          workspace_id: invitation.workspace_id,
+          user_id: user.id,
+          role: invitation.role,
+          created_at: now,
+        },
+      },
+      { upsert: true },
     );
-    if (!rows.length) throw ApiError.notFound('Invitation not found or expired.');
-    const invitation = rows[0];
-    if (accept) {
-      const [memberships] = await connection.execute(
-        'SELECT id FROM workspace_members WHERE workspace_id = ? AND user_id = ? LIMIT 1',
-        [invitation.workspace_id, user.id],
-      );
-      if (memberships.length === 0) {
-        await connection.execute(
-          `INSERT INTO workspace_members (id, workspace_id, user_id, role)
-           VALUES (?, ?, ?, ?)`,
-          [randomUUID(), invitation.workspace_id, user.id, invitation.role],
-        );
-      }
-      await connection.execute(
-        "UPDATE workspace_invitations SET status = 'accepted', accepted_at = UTC_TIMESTAMP() WHERE id = ?",
-        [id],
-      );
-    } else {
-      await connection.execute(
-        "UPDATE workspace_invitations SET status = 'revoked' WHERE id = ?",
-        [id],
-      );
-    }
-  });
+  } catch (error) {
+    await database.collection('workspace_invitations').updateOne(
+      { id, status: 'accepted' },
+      { $set: { status: 'pending', accepted_at: null, updated_at: new Date() } },
+    );
+    throw error;
+  }
 }
 
 module.exports = {

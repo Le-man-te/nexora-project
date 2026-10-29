@@ -1,0 +1,210 @@
+:root {
+  color-scheme: light;
+  --nexora-ink: #29263d;
+  --nexora-muted: #77758b;
+  --nexora-line: #e9e6f0;
+  --nexora-surface: #fff;
+  --nexora-accent: #7556d8;
+  --nexora-tint: #f0ebff;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  color: var(--nexora-ink);
+  background: #f8f7fc;
+}
+
+body {
+  min-width: 320px;
+  background:
+    radial-gradient(ellipse at 2% 2%, rgb(126 97 214 / 7%), transparent 34rem),
+    #f8f7fc;
+}
+
+button,
+a,
+input,
+select,
+textarea {
+  -webkit-tap-highlight-color: transparent;
+}
+
+button,
+a {
+  transition:
+    color 180ms ease,
+    background-color 180ms ease,
+    border-color 180ms ease,
+    box-shadow 180ms ease,
+    transform 180ms ease;
+}
+
+:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--nexora-accent) 42%, transparent);
+  outline-offset: 3px;
+}
+
+.nexora-app {
+  --nexora-accent: #7556d8;
+  --nexora-tint: #f0ebff;
+  --nexora-page-wash: #f8f7fc;
+  background: var(--nexora-page-wash);
+}
+
+.nexora-app .sidebar {
+  border-right-color: #e9e6f0;
+  background: rgb(255 255 255 / 94%);
+  box-shadow: 8px 0 34px rgb(52 42 100 / 3%);
+}
+
+.nexora-app .nav-item:hover,
+.nexora-app .project-nav-item:hover,
+.nexora-app .add-project-link:hover,
+.nexora-app .icon-button:hover,
+.nexora-app .profile-button:hover,
+.nexora-app .workspace-picker:hover {
+  border-color: color-mix(in srgb, var(--nexora-accent) 18%, white);
+  background-color: var(--nexora-tint);
+}
+
+.nexora-app .nav-item.is-active {
+  background: color-mix(in srgb, var(--nexora-tint) 88%, white);
+  box-shadow: inset 3px 0 var(--nexora-accent);
+}
+
+.nexora-app .main-area {
+  background:
+    radial-gradient(ellipse at 92% 4%, color-mix(in srgb, var(--nexora-accent) 7%, transparent), transparent 34rem),
+    var(--nexora-page-wash);
+}
+
+.nexora-app .topbar,
+.projects-app .projects-topbar {
+  border-bottom-color: color-mix(in srgb, var(--nexora-accent) 12%, white);
+  background: rgb(255 255 255 / 86%);
+  box-shadow: 0 6px 24px rgb(48 39 88 / 3%);
+  backdrop-filter: blur(18px);
+}
+
+.nexora-app .search-box:focus-within,
+.nexora-app .workspace-picker:focus-visible {
+  border-color: color-mix(in srgb, var(--nexora-accent) 55%, white);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--nexora-accent) 12%, transparent);
+}
+
+.projects-app {
+  --nexora-accent: #387c83;
+  --nexora-tint: #e8f5f3;
+  background:
+    radial-gradient(ellipse at 100% 0%, rgb(74 163 157 / 9%), transparent 34rem),
+    #f5faf9;
+}
+
+.projects-app .projects-primary-button,
+.projects-app .projects-nav a[aria-current="page"]::after {
+  border-color: #32777d;
+  background-color: #397f84;
+}
+
+.tasks-app {
+  --nexora-accent: #43856e;
+  --nexora-tint: #e8f5ee;
+  background:
+    radial-gradient(ellipse at 100% 0%, rgb(83 171 129 / 9%), transparent 34rem),
+    #f6faf7;
+}
+
+.ai-app {
+  --nexora-accent: #397c91;
+  --nexora-tint: #e8f4f8;
+  --nexora-page-wash: #f5fafc;
+}
+
+.analytics-app {
+  --nexora-accent: #496db2;
+  --nexora-tint: #edf2ff;
+  --nexora-page-wash: #f6f8fd;
+}
+
+.collaboration-app {
+  --nexora-accent: #a45b83;
+  --nexora-tint: #f9edf4;
+  --nexora-page-wash: #fcf7fa;
+}
+
+.ai-app .main-area,
+.analytics-app .main-area,
+.collaboration-app .main-area {
+  background:
+    radial-gradient(ellipse at 94% 0%, color-mix(in srgb, var(--nexora-accent) 8%, transparent), transparent 34rem),
+    var(--nexora-page-wash);
+}
+
+.public-layout:not(.nexora-auth-layout) {
+  background:
+    radial-gradient(ellipse at 0% 10%, rgb(137 111 211 / 8%), transparent 34rem),
+    radial-gradient(ellipse at 100% 54%, rgb(92 167 162 / 6%), transparent 31rem),
+    #fbfaff;
+}
+
+.public-layout-header {
+  box-shadow: 0 8px 28px rgb(45 37 78 / 4%);
+}
+
+.public-layout-brand:hover,
+.projects-brand:hover {
+  color: var(--nexora-accent);
+  transform: translateY(-1px);
+}
+
+.admin-page {
+  --nexora-accent: #6554b8;
+  --nexora-tint: #f0edff;
+}
+
+.admin-stat,
+.admin-section,
+[class*="-card"] {
+  transition:
+    transform 200ms ease,
+    box-shadow 200ms ease,
+    border-color 200ms ease,
+    background-color 200ms ease;
+}
+
+.admin-stat:hover,
+.admin-section:hover,
+[class*="-card"]:hover {
+  border-color: color-mix(in srgb, var(--nexora-accent, #7556d8) 22%, white);
+  background-color: color-mix(in srgb, var(--nexora-tint, #f0ebff) 54%, white);
+  box-shadow: 0 14px 36px color-mix(in srgb, var(--nexora-accent, #7556d8) 11%, transparent);
+  transform: translateY(-3px);
+}
+
+.admin-table tr:hover td {
+  background: #f5f2ff;
+}
+
+.admin-action:not(:disabled):hover,
+.admin-home-link:hover {
+  border-color: #c9bdf1;
+  background: #eee9ff;
+  box-shadow: 0 5px 14px rgb(101 84 184 / 11%);
+  transform: translateY(-1px);
+}
+
+button:hover:not(:disabled) {
+  filter: saturate(1.08);
+}
+
+button:active:not(:disabled) {
+  transform: translateY(0) scale(.985);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

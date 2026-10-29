@@ -1,42 +1,39 @@
 const { randomUUID } = require('node:crypto');
-const { getPool } = require('../../database/pools');
-const { withTransaction } = require('../../database/transaction');
+const { getMongoDatabase } = require('../../database/mongo');
 
-async function findUserByEmail(email, pool = getPool()) {
-  const [rows] = await pool.execute('SELECT id, name, email FROM users WHERE email = ? LIMIT 1', [email]);
-  return rows[0] || null;
-}
-
-async function createResetToken(userId, tokenHash, expiresAt, pool = getPool()) {
-  await pool.execute(
-    'DELETE FROM password_reset_tokens WHERE user_id = ? AND used_at IS NULL',
-    [userId],
-  );
-  await pool.execute(
-    `INSERT INTO password_reset_tokens (id, user_id, token_hash, expires_at)
-     VALUES (?, ?, ?, ?)`,
-    [randomUUID(), userId, tokenHash, expiresAt],
+async function findUserByEmail(email, database = getMongoDatabase()) {
+  return database.collection('users').findOne(
+    { email },
+    { projection: { id: 1, name: 1, email: 1 } },
   );
 }
 
-async function resetPassword(tokenHash, passwordHash, pool = getPool()) {
-  return withTransaction(pool, async (connection) => {
-    const [rows] = await connection.execute(
-      `SELECT id, user_id FROM password_reset_tokens
-       WHERE token_hash = ? AND used_at IS NULL AND expires_at > UTC_TIMESTAMP()
-       FOR UPDATE`,
-      [tokenHash],
-    );
-    if (rows.length === 0) return false;
-    const resetToken = rows[0];
-    await connection.execute('UPDATE users SET password_hash = ? WHERE id = ?', [passwordHash, resetToken.user_id]);
-    await connection.execute('DELETE FROM sessions WHERE user_id = ?', [resetToken.user_id]);
-    await connection.execute(
-      'UPDATE password_reset_tokens SET used_at = UTC_TIMESTAMP() WHERE id = ?',
-      [resetToken.id],
-    );
-    return true;
+async function createResetToken(userId, tokenHash, expiresAt, database = getMongoDatabase()) {
+  await database.collection('password_reset_tokens').deleteMany({ user_id: userId, used_at: null });
+  await database.collection('password_reset_tokens').insertOne({
+    id: randomUUID(),
+    user_id: userId,
+    token_hash: tokenHash,
+    expires_at: expiresAt,
+    used_at: null,
+    created_at: new Date(),
   });
+}
+
+async function resetPassword(tokenHash, passwordHash, database = getMongoDatabase()) {
+  const resetToken = await database.collection('password_reset_tokens').findOneAndUpdate(
+    { token_hash: tokenHash, used_at: null, expires_at: { $gt: new Date() } },
+    { $set: { used_at: new Date() } },
+    { returnDocument: 'before' },
+  );
+  if (!resetToken) return false;
+  const userUpdate = await database.collection('users').updateOne(
+    { id: resetToken.user_id },
+    { $set: { password_hash: passwordHash, updated_at: new Date() } },
+  );
+  if (userUpdate.matchedCount !== 1) throw new Error('Password reset user no longer exists.');
+  await database.collection('sessions').deleteMany({ user_id: resetToken.user_id });
+  return true;
 }
 
 module.exports = { findUserByEmail, createResetToken, resetPassword };

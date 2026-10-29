@@ -1,5 +1,5 @@
 const { createHash } = require('node:crypto');
-const { getPool } = require('../database/pools');
+const { getMongoDatabase } = require('../database/mongo');
 const env = require('../config/env');
 const ApiError = require('../utils/ApiErroir');
 
@@ -19,16 +19,18 @@ async function requireAuth(req, _res, next) {
     const token = readCookie(req, env.sessionCookieName);
     if (!token || token.length > 256) throw ApiError.unauthorized();
     const tokenHash = createHash('sha256').update(token).digest('hex');
-    const [rows] = await getPool().execute(
-      `SELECT u.id, u.name, u.email, u.avatar_url, s.id AS session_id
-       FROM sessions s
-       JOIN users u ON u.id = s.user_id
-       WHERE s.token_hash = ? AND s.expires_at > UTC_TIMESTAMP()
-       LIMIT 1`,
-      [tokenHash],
+    const database = getMongoDatabase();
+    const session = await database.collection('sessions').findOne({
+      token_hash: tokenHash,
+      expires_at: { $gt: new Date() },
+    });
+    const user = session && await database.collection('users').findOne(
+      { id: session.user_id },
+      { projection: { id: 1, name: 1, email: 1, avatar_url: 1, global_role: 1, disabled_at: 1 } },
     );
-    if (rows.length === 0) throw ApiError.unauthorized('Your session has expired. Please sign in again.');
-    req.user = rows[0];
+    if (!session || !user) throw ApiError.unauthorized('Your session has expired. Please sign in again.');
+    if (user.disabled_at) throw ApiError.unauthorized('This account has been disabled.');
+    req.user = { ...user, global_role: user.global_role || 'user', session_id: session.id };
     req.sessionTokenHash = tokenHash;
     next();
   } catch (error) {

@@ -1,10 +1,10 @@
 const app = require('./app');
 const env = require('./config/env');
 const logger = require('./config/logger');
-const { getPool, closePool } = require('./database/pools');
+const { connectMongo, closeMongo } = require('./database/mongo');
 
 async function startServer() {
-  await getPool().query('SELECT 1');
+  await connectMongo();
   const server = await new Promise((resolve, reject) => {
     const listener = app.listen(env.port, () => resolve(listener));
     listener.once('error', reject);
@@ -22,9 +22,9 @@ async function startServer() {
         process.exitCode = 1;
       }
       try {
-        await closePool();
+        await closeMongo();
       } catch (poolError) {
-        logger.error('Database pool shutdown failed.', { message: poolError.message });
+        logger.error('MongoDB shutdown failed.', { message: poolError.message });
         process.exitCode = 1;
       }
     });
@@ -39,9 +39,9 @@ if (require.main === module) {
   startServer().catch(async (error) => {
     logger.error('Backend startup failed.', { message: error.message });
     try {
-      await closePool();
+      await closeMongo();
     } catch (poolError) {
-      logger.error('Database pool cleanup failed.', { message: poolError.message });
+      logger.error('MongoDB cleanup failed.', { message: poolError.message });
     }
     process.exitCode = 1;
   });

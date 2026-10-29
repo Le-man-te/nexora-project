@@ -1,46 +1,91 @@
 const assert = require('node:assert/strict');
-const fs = require('node:fs/promises');
 const path = require('node:path');
 const test = require('node:test');
 const app = require('../app');
-const { getMigrationFiles, runMigrations } = require('../database/migrate');
+const { runMigrations } = require('../database/migrate');
+const { getMigrationFiles } = require('../database/migrations/run');
+const { TABLES, migrateMySqlToMongo } = require('../database/migrate-mysql-to-mongodb');
 const { safeFilename } = require('../security/safeFilename');
-const { createResourceRepository } = require('../utils/resourceModule');
+const { createResourceRepository, createResourceService } = require('../utils/resourceModule');
 
-test('all numbered migrations are present, ordered, and non-empty', async () => {
+test('ordered MongoDB migration files cover every application collection', async () => {
   const files = await getMigrationFiles();
-  assert.equal(files.length, 21);
+  assert.equal(files.length, TABLES.length);
   assert.deepEqual(files, [...files].sort((left, right) => left.localeCompare(right, 'en')));
 
+  const collections = [];
   for (const file of files) {
-    const contents = await fs.readFile(path.join(__dirname, '..', 'database', 'migrations', file), 'utf8');
-    assert.match(contents, /^\s*CREATE TABLE /i, `${file} should define a table`);
+    const migration = require(path.join(__dirname, '..', 'database', 'migrations', file));
+    assert.ok(Array.isArray(migration.indexes), `${file} should define MongoDB indexes`);
+    collections.push(migration.collection);
   }
+  assert.deepEqual(collections, TABLES);
 });
 
-test('migration runner applies each migration once', async () => {
-  const appliedNames = new Set();
-  const executedSql = [];
-  const pool = {
-    async query(sql) {
-      if (sql.includes('CREATE TABLE IF NOT EXISTS schema_migrations')) return [[], []];
-      if (sql === 'SELECT name FROM schema_migrations') {
-        return [[...appliedNames].map((name) => ({ name })), []];
+test('MongoDB migrations create collection indexes once and record their completion', async () => {
+  const indexedCollections = [];
+  const appliedMigrations = new Set();
+  const database = {
+    databaseName: 'nexora',
+    collection(name) {
+      if (name === '_migrations') {
+        return {
+          async findOne(filter) {
+            return appliedMigrations.has(filter._id) ? { _id: filter._id } : null;
+          },
+          async insertOne(migration) {
+            appliedMigrations.add(migration._id);
+          },
+        };
       }
-      executedSql.push(sql);
-      return [[], []];
-    },
-    async execute(_sql, [name]) {
-      appliedNames.add(name);
-      return [[], []];
+      return {
+        async createIndexes(indexes) {
+          indexedCollections.push({ name, indexes });
+        },
+      };
     },
   };
 
-  const firstRun = await runMigrations(pool);
-  const secondRun = await runMigrations(pool);
-  assert.deepEqual(firstRun, { applied: 21, total: 21 });
-  assert.deepEqual(secondRun, { applied: 0, total: 21 });
-  assert.equal(executedSql.length, 21);
+  const firstRun = await runMigrations(database);
+  const secondRun = await runMigrations(database);
+  assert.deepEqual(firstRun, { applied: TABLES.length, total: TABLES.length, database: 'nexora' });
+  assert.deepEqual(secondRun, { applied: 0, total: TABLES.length, database: 'nexora' });
+  assert.equal(indexedCollections.length, TABLES.length);
+  assert.ok(indexedCollections.every(({ indexes }) => indexes.length > 0));
+});
+
+test('MySQL transfer preserves row fields and can upsert into MongoDB', async () => {
+  let userRow = { id: 'user-1', email: 'first@example.com' };
+  const documents = new Map();
+  const sourceConnection = {
+    async query(sql) {
+      const table = sql.match(/FROM `([^`]+)`/)[1];
+      if (sql.includes('COUNT(*)')) return [[{ total: table === 'users' ? 1 : 0 }]];
+      return [table === 'users' ? [userRow] : []];
+    },
+  };
+  const targetDatabase = {
+    collection() {
+      return {
+        async bulkWrite(operations) {
+          for (const { updateOne } of operations) {
+            if (!documents.has(updateOne.filter._id)) {
+              documents.set(updateOne.filter._id, updateOne.update.$setOnInsert);
+            }
+          }
+        },
+      };
+    },
+  };
+
+  assert.deepEqual(await migrateMySqlToMongo(sourceConnection, targetDatabase), {
+    tables: TABLES.length,
+    records: 1,
+  });
+  assert.deepEqual(documents.get('user-1'), { id: 'user-1', email: 'first@example.com', _id: 'user-1' });
+  userRow = { id: 'user-1', email: 'updated@example.com' };
+  await migrateMySqlToMongo(sourceConnection, targetDatabase);
+  assert.equal(documents.get('user-1').email, 'first@example.com');
 });
 
 test('resource repositories only accept trusted table and field identifiers', () => {
@@ -51,9 +96,15 @@ test('resource repositories only accept trusted table and field identifiers', ()
     createFields: [],
     updateFields: [],
     requiredFields: [],
-  }), /Unsafe SQL identifier/);
+  }), /Unsafe MongoDB collection name/);
   assert.throws(() => safeFilename('../../payload.svg'), /not allowed/);
   assert.match(safeFilename('../../report.pdf'), /^[0-9a-f-]{36}-report\.pdf$/i);
+});
+
+test('resource services retain route metadata for response envelopes', () => {
+  const service = createResourceService({}, { singular: 'note', plural: 'notes' });
+  assert.equal(service.singular, 'note');
+  assert.equal(service.plural, 'notes');
 });
 
 test('health endpoint works without a database connection', async (t) => {

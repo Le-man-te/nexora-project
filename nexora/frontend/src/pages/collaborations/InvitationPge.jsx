@@ -1,6 +1,13 @@
-import { useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import Icon from '../../layouts/Icon.jsx'
+import { listWorkspaces } from '../../features/workspaces/components/workspaces.api.js'
 import CollaborationLayout from './CollaborationLayout.jsx'
+import {
+  listInvitations as fetchInvitations,
+  resendInvitation,
+  revokeInvitation,
+  sendInvitation as createInvitation,
+} from './collaboration.api.js'
 import {
   filterInvitations,
   getInvitationCounts,
@@ -9,22 +16,101 @@ import {
 } from './collaboration.utils.js'
 import './CollaborationPages.css'
 
-const startingInvitations = [
-  { id: 1, email: 'morgan.chen@example.com', role: 'Member', sent: 'Oct 18, 2026', status: 'Pending' },
-  { id: 2, email: 'taylor.rivera@example.com', role: 'Admin', sent: 'Oct 16, 2026', status: 'Pending' },
-  { id: 3, email: 'casey.brooks@example.com', role: 'Member', sent: 'Oct 14, 2026', status: 'Accepted' },
-]
-
 const invitationFilters = ['All invitations', 'Pending', 'Accepted']
 
+function formatInvitation(invitation) {
+  const statuses = {
+    pending: 'Pending',
+    accepted: 'Accepted',
+    declined: 'Declined',
+    expired: 'Expired',
+    revoked: 'Revoked',
+  }
+  const status = String(invitation.status || 'pending').toLowerCase()
+  const sentDate = invitation.created_at ? new Date(invitation.created_at) : null
+
+  return {
+    ...invitation,
+    role: invitation.role === 'admin' ? 'Admin' : 'Member',
+    status: statuses[status] || status,
+    sent: sentDate && !Number.isNaN(sentDate.getTime())
+      ? sentDate.toLocaleDateString()
+      : 'Just now',
+  }
+}
+
 function InvitationPage() {
-  const [invitations, setInvitations] = useState(startingInvitations)
+  const [workspaces, setWorkspaces] = useState([])
+  const [workspaceId, setWorkspaceId] = useState('')
+  const [invitations, setInvitations] = useState([])
   const [email, setEmail] = useState('')
   const [role, setRole] = useState('Member')
   const [filter, setFilter] = useState('All invitations')
   const [search, setSearch] = useState('')
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
+  const [pageError, setPageError] = useState('')
+  const [loadingWorkspaces, setLoadingWorkspaces] = useState(true)
+  const [loadedWorkspaceId, setLoadedWorkspaceId] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+  const [busyInvitationId, setBusyInvitationId] = useState('')
+
+  const activeWorkspace = workspaces.find((workspace) => workspace.id === workspaceId)
+
+  useEffect(() => {
+    const controller = new AbortController()
+
+    async function loadWorkspaces() {
+      try {
+        const result = await listWorkspaces({ signal: controller.signal })
+        const availableWorkspaces = result.workspaces || []
+        setWorkspaces(availableWorkspaces)
+        setWorkspaceId((currentId) => (
+          availableWorkspaces.some((workspace) => workspace.id === currentId)
+            ? currentId
+            : availableWorkspaces[0]?.id || ''
+        ))
+        if (availableWorkspaces.length === 0) setPageError('You need a workspace before you can invite someone.')
+      } catch (loadError) {
+        if (!controller.signal.aborted) {
+          setPageError(loadError.message || 'Could not load your workspaces.')
+        }
+      } finally {
+        if (!controller.signal.aborted) setLoadingWorkspaces(false)
+      }
+    }
+
+    loadWorkspaces()
+    return () => controller.abort()
+  }, [])
+
+  const refreshInvitations = useCallback(async (signal) => {
+    const result = await fetchInvitations({ workspaceId }, { signal })
+    return (result.invitations || []).map(formatInvitation)
+  }, [workspaceId])
+
+  useEffect(() => {
+    if (!workspaceId) return undefined
+
+    const controller = new AbortController()
+
+    refreshInvitations(controller.signal)
+      .then((loadedInvitations) => {
+        if (!controller.signal.aborted) {
+          setInvitations(loadedInvitations)
+          setPageError('')
+          setLoadedWorkspaceId(workspaceId)
+        }
+      })
+      .catch((loadError) => {
+        if (!controller.signal.aborted) {
+          setPageError(loadError.message || 'Could not load invitations.')
+          setLoadedWorkspaceId(workspaceId)
+        }
+      })
+
+    return () => controller.abort()
+  }, [refreshInvitations, workspaceId])
 
   const { pending: pendingCount, accepted: acceptedCount } = getInvitationCounts(invitations)
 
@@ -33,7 +119,7 @@ function InvitationPage() {
     [filter, invitations, search],
   )
 
-  function sendInvitation(event) {
+  async function sendInvitation(event) {
     event.preventDefault()
     const validation = validateInvitation({ email, role }, invitations)
     if (!validation.isValid) {
@@ -43,33 +129,42 @@ function InvitationPage() {
     }
     const normalizedEmail = normalizeEmail(email)
 
-    setInvitations((current) => [
-      {
-        id: Date.now(),
-        email: normalizedEmail,
-        role,
-        sent: 'Just now',
-        status: 'Pending',
-      },
-      ...current,
-    ])
-    setEmail('')
-    setRole('Member')
-    setFilter('All invitations')
+    setSubmitting(true)
     setError('')
-    setMessage(`Invitation ready for ${normalizedEmail}.`)
+    setMessage('')
+    try {
+      const result = await createInvitation({ workspaceId, email: normalizedEmail, role })
+      setInvitations((current) => [formatInvitation(result.invitation), ...current])
+      setEmail('')
+      setRole('Member')
+      setFilter('All invitations')
+      setMessage(`The email provider accepted the invitation for ${normalizedEmail}. Inbox delivery may depend on the recipient's mail service.`)
+    } catch (sendError) {
+      setError(sendError.message || 'Could not send the invitation.')
+    } finally {
+      setSubmitting(false)
+    }
   }
 
-  function updateInvitation(invitation, action) {
-    if (action === 'revoke') {
-      setInvitations((current) => current.filter((item) => item.id !== invitation.id))
-      setMessage(`Invitation for ${invitation.email} was removed.`)
-      setError('')
-      return
-    }
-
-    setMessage(`A fresh invitation is ready to send to ${invitation.email}.`)
+  async function updateInvitation(invitation, action) {
+    setBusyInvitationId(invitation.id)
     setError('')
+    setMessage('')
+    try {
+      if (action === 'revoke') {
+        await revokeInvitation(invitation.id)
+        setInvitations(await refreshInvitations())
+        setMessage(`Invitation for ${invitation.email} was revoked.`)
+      } else {
+        await resendInvitation(invitation.id)
+        setInvitations(await refreshInvitations())
+        setMessage(`The email provider accepted the resent invitation for ${invitation.email}.`)
+      }
+    } catch (actionError) {
+      setError(actionError.message || `Could not ${action} the invitation.`)
+    } finally {
+      setBusyInvitationId('')
+    }
   }
 
   return (
@@ -100,6 +195,8 @@ function InvitationPage() {
         </div>
       </section>
 
+      {pageError && <p className="invite-form-error" role="alert">{pageError}</p>}
+
       <div className="invitation-stats">
         <article><span className="invitation-stat-icon violet"><Icon name="plus" size={17} /></span><div><strong>{invitations.length}</strong><span>Total invitations</span></div></article>
         <article><span className="invitation-stat-icon amber"><i /></span><div><strong>{pendingCount}</strong><span>Awaiting a reply</span></div></article>
@@ -119,10 +216,26 @@ function InvitationPage() {
           <span className="invite-compose-icon"><Icon name="plus" size={19} /></span>
           <div>
             <h2 id="send-invite-title">Invite someone new</h2>
-            <p>They’ll get an email with a link to join Studio North.</p>
+            <p>They’ll get an email with a link to join {activeWorkspace?.name || 'your workspace'}.</p>
           </div>
         </div>
         <form className="invite-compose-form" onSubmit={sendInvitation}>
+          <label className="invite-role-field">
+            <span>Workspace</span>
+            <select
+              aria-label="Workspace"
+              disabled={loadingWorkspaces || workspaces.length === 0}
+              onChange={(event) => {
+                setWorkspaceId(event.target.value)
+                setPageError('')
+              }}
+              value={workspaceId}
+            >
+              {workspaces.map((workspace) => (
+                <option key={workspace.id} value={workspace.id}>{workspace.name}</option>
+              ))}
+            </select>
+          </label>
           <label className="invite-email-field">
             <span>Email address</span>
             <span className="invite-input-wrap"><Icon name="document" size={16} /><input autoComplete="email" onChange={(event) => { setEmail(event.target.value); setError('') }} placeholder="name@company.com" required type="email" value={email} /></span>
@@ -134,7 +247,9 @@ function InvitationPage() {
               <option value="Admin">Admin</option>
             </select>
           </label>
-          <button className="collab-primary-button" type="submit"><Icon name="plus" size={16} /> Send invite</button>
+          <button className="collab-primary-button" disabled={loadingWorkspaces || !workspaceId || submitting} type="submit">
+            <Icon name="plus" size={16} /> {submitting ? 'Sending…' : 'Send invite'}
+          </button>
         </form>
         {error && <p className="invite-form-error" role="alert">{error}</p>}
         <div className="invite-compose-foot"><Icon name="spark" size={14} /><span>Members can collaborate on projects. Admins can also manage workspace settings.</span></div>
@@ -164,7 +279,9 @@ function InvitationPage() {
           ))}
         </div>
 
-        {filteredInvitations.length ? (
+        {loadingWorkspaces || (workspaceId && loadedWorkspaceId !== workspaceId) ? (
+          <div className="activity-empty invite-empty"><p>Loading invitations…</p></div>
+        ) : filteredInvitations.length ? (
           <>
             <div className="invite-table-wrap">
               <table className="invite-table">
@@ -179,8 +296,8 @@ function InvitationPage() {
                       <td className="invite-row-actions">
                         {invite.status === 'Pending' && (
                           <>
-                            <button onClick={() => updateInvitation(invite, 'resend')} type="button">Resend</button>
-                            <button aria-label={`Revoke invitation for ${invite.email}`} onClick={() => updateInvitation(invite, 'revoke')} type="button">Revoke</button>
+                            <button disabled={busyInvitationId === invite.id} onClick={() => updateInvitation(invite, 'resend')} type="button">Resend</button>
+                            <button aria-label={`Revoke invitation for ${invite.email}`} disabled={busyInvitationId === invite.id} onClick={() => updateInvitation(invite, 'revoke')} type="button">Revoke</button>
                           </>
                         )}
                       </td>
@@ -194,7 +311,7 @@ function InvitationPage() {
                 <article className="invite-mobile-row" key={invite.id}>
                   <div className="invite-mobile-person"><span className="invitee-avatar">{invite.email.slice(0, 1).toUpperCase()}</span><span><strong>{invite.email}</strong><small>{invite.role} · Sent {invite.sent}</small></span></div>
                   <span className={`invite-status ${invite.status.toLowerCase()}`}><i />{invite.status}</span>
-                  {invite.status === 'Pending' && <div className="invite-mobile-actions"><button onClick={() => updateInvitation(invite, 'resend')} type="button">Resend invite</button><button onClick={() => updateInvitation(invite, 'revoke')} type="button">Revoke</button></div>}
+                  {invite.status === 'Pending' && <div className="invite-mobile-actions"><button disabled={busyInvitationId === invite.id} onClick={() => updateInvitation(invite, 'resend')} type="button">Resend invite</button><button disabled={busyInvitationId === invite.id} onClick={() => updateInvitation(invite, 'revoke')} type="button">Revoke</button></div>}
                 </article>
               ))}
             </div>
